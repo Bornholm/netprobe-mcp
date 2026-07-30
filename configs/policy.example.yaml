@@ -1,0 +1,442 @@
+# netprobe-mcp policy file (template).
+#
+# When the server starts without --config, it loads a built-in safe
+# default: a small allow-list of public diagnostic hosts (RFC 2606
+# example domains plus dns.google / one.one.one.one / cloudflare.com)
+# and loopback, with private networks, link-local, multicast, and the
+# cloud-metadata IP blocked. The default is meant for local
+# evaluation, demos, and CI smoke-tests against real public services.
+#
+# For production, copy this file to your own location (e.g.
+# /etc/netprobe-mcp/policy.yaml) and replace the loopback-only
+# allow-list with the explicit set of hosts your agent is allowed to
+# probe. Pass it with --config=/etc/netprobe-mcp/policy.yaml.
+#
+# Quick overrides without a config file: --allow-hostname=foo and
+# --allow-cidr=10.0.0.0/8 (both repeatable). A hostname prefixed with
+# '.' is treated as a suffix rule. Flag rules layer on top of whatever
+# --config produced, or on top of the built-in default.
+#
+# Every probe goes through the guard pipeline: target allow-list,
+# network block-list, rate limit, then probe. There is no shortcut. A
+# rule set that lets everything through is equivalent to no rule set,
+# which is why the example below starts with loopback only.
+#
+# The file is loaded once at startup with --config. Hot reload is not
+# supported. Restart the process to apply changes.
+#
+# All durations use Go syntax: "10s", "500ms", "2m". All sizes are
+# bytes unless suffixed. Booleans are true/false. CIDRs and hostnames
+# follow the usual conventions.
+
+server:
+  # Stdio transport is the default. The server speaks JSON-RPC over
+  # stdin/stdout. Wire it to a model client (Claude, cursor, etc.) the
+  # same way you would wire any MCP server.
+  #
+  # Set to "http" to enable the Streamable HTTP transport. When you
+  # do, the http.auth block below MUST be configured — the server
+  # refuses to start otherwise. See PLAN §9.8 §13.8.
+  transport: stdio
+
+  # Name and version are advertised to the MCP client during the
+  # initialize handshake. They appear in the client's tool listing and
+  # in audit logs.
+  name: netprobe-mcp
+  version: "0.1.0"
+
+  # Grace period for SIGINT/SIGTERM. The server stops accepting new
+  # probes and waits up to this duration for in-flight probes to finish
+  # before exiting. Set higher than your longest expected probe budget.
+  shutdown_grace: 10s
+
+  # HTTP transport configuration. Only honoured when transport=http.
+  # The block is documented but not active by default (transport is
+  # stdio above).
+  http:
+    # Listen address. Loopback is the recommended default; binding to
+    # a non-loopback address is supported but logs a warning at boot
+    # because the auth model assumes a reverse proxy in front.
+    # addr: "127.0.0.1:8080"
+
+    # Origins allowed to send requests. Empty = no-browser mode
+    # (any Origin header is rejected; the server speaks only to
+    # non-browser clients). When you add a browser entry, every
+    # other Origin is rejected — defence against DNS-rebinding of
+    # the server itself (PLAN §9.8).
+    # allowed_origins:
+    #   - "https://chat.example.com"
+
+    # Idle session timeout. Sessions are closed after this duration
+    # without activity. Each session's quota (rate limiter) is
+    # reclaimed on close.
+    # session_ttl: 5m
+
+    # Auth MUST be configured when transport=http. Tokens are stored
+    # as SHA-256 hex digests so the YAML never leaks plaintext.
+    # Generate them with: netprobe-mcp hash <token>
+    # auth:
+    #   token_bearer:
+    #     enabled: true
+    #     token_hashes:
+    #       - "<sha256-hex-of-token>"
+
+security:
+  # Target allow-list. Without entries here, every probe is refused.
+  # Each entry is a CIDR or hostname pattern with the set of tools it
+  # applies to. "tools" is required: omitting it means the rule matches
+  # nothing.
+  targets:
+    # Deny rules win over allow rules on overlap. Empty by default.
+    deny: []
+    allow:
+      # The example file targets loopback only. The built-in default
+      # (loaded when --config is empty) is broader and lets the agent
+      # exercise the tools against RFC 2606 example domains and a few
+      # public diagnostic hosts. Replace this entry with the ranges
+      # you actually want to probe in production. Examples:
+      #
+      #   - type: cidr
+      #     pattern: "10.0.0.0/8"
+      #     tools: ["tcp_probe", "http_probe"]
+      #     comment: "internal services"
+      #
+      #   - type: hostname
+      #     pattern: "*.example.com"
+      #     tools: ["tls_diagnose", "http_probe"]
+      #     comment: "public-facing endpoints"
+      - type: cidr
+        pattern: "127.0.0.0/8"
+        tools: ["tcp_probe", "http_probe", "dns_probe", "tls_diagnose", "icmp_probe", "probe_check_target"]
+        comment: "loopback for local testing only"
+
+  # Network block-list. Applied to every resolved address, regardless
+  # of the allow-list above. A target whose IP falls in a blocked range
+  # is refused even if the host is on the allow-list.
+  network:
+    # RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16. Set true
+    # if you never want internal probes.
+    block_private: false
+
+    # 127.0.0.0/8 and ::1. Must be false here because the example
+    # allow-list targets loopback. Flip both to true in production.
+    block_loopback: false
+
+    # 169.254.0.0/16 and fe80::/10. Link-local traffic is almost
+    # always unintended. Leave true unless you have a specific reason.
+    block_link_local: true
+
+    # 224.0.0.0/4 and ff00::/8. Multicast probes are not useful and
+    # can cause weird behaviour on the network. Keep true.
+    block_multicast: true
+
+    # 0.0.0.0 and ::. Catches "any" mistakes. Keep true.
+    block_unspecified: true
+
+    # 169.254.169.254 and the AWS/GCP/Azure equivalents. The
+    # cloud-metadata SSRF target. Always block. If you genuinely need
+    # IMDS access, run a dedicated, scoped server instead.
+    block_cloud_metadata: true
+
+    # Allow IPv4 resolution and connections. Set false on IPv6-only
+    # networks. Independent of the per-target CIDR type.
+    allow_ipv4: true
+
+    # Allow IPv6. Off by default because most deployments do not have
+    # an IPv6 allow-list, and "allow IPv6" without rules silently lets
+    # probes resolve to v6 addresses the operator did not intend.
+    allow_ipv6: false
+
+  # DNS resolution. The prober resolves hostnames through the configured
+  # resolvers; every resolved address is re-checked against the network
+  # block-list above.
+  dns:
+    # Empty list means the prober uses the system resolver (glibc or
+    # the OS-level configuration). The system resolver is constrained
+    # by the same network block-list as the dialer. To pin a resolver,
+    # list its IPs as CIDRs, for example:
+    #
+    #   resolvers:
+    #     - "1.1.1.1"
+    #     - "9.9.9.9"
+    resolvers: []
+
+    # Per-resolution timeout. 3s is generous for a healthy resolver.
+    timeout: 3s
+
+    # Positive cache TTL. Resolved addresses are reused for this
+    # duration to avoid hammering the resolver. 60s matches typical
+    # DNS TTLs without caching stale data for too long.
+    cache_ttl: 60s
+
+    # Hard cap on cached entries. When the cache is full, the oldest
+    # entry is evicted. 4096 is enough for ~4000 distinct hostnames.
+    cache_max_entries: 4096
+
+    # Cap on addresses per name. A hostname with 50 A records is
+    # almost always DNS poisoning or an exfiltration channel. 4 is
+    # the practical upper bound for any real service.
+    max_addresses_per_name: 4
+
+limits:
+  # Server-wide rate limit across every tool and every session. Tune
+  # this first; the per-tool limits below cannot exceed it.
+  global: { rps: 5, burst: 10 }
+
+  # Per resolved target IP. Stops one target from monopolising the
+  # server. 0.5 RPS = one probe every two seconds; the burst of 3 lets
+  # short bursts through.
+  per_target: { rps: 0.5, burst: 3 }
+
+  # Per MCP session. A misbehaving client cannot starve other clients.
+  per_session: { rps: 2, burst: 5 }
+
+  # Per-tool overrides. Each tool can be tighter or looser than the
+  # global limit. rps is the sustained rate, burst is the maximum
+  # instantaneous queue.
+  per_tool:
+    tcp_probe: { rps: 3, burst: 6 }
+    http_probe: { rps: 2, burst: 4 }
+    dns_probe:  { rps: 2, burst: 4 }
+    tls_diagnose: { rps: 2, burst: 4 }
+
+  # Hard cap on simultaneous in-flight probes. Probes beyond this
+  # count queue, then fail when the queue overflows.
+  max_concurrent_probes: 8
+
+  # TTL for keyed limiters (per-session, per-target). Limiter entries
+  # are garbage-collected after this duration of inactivity. Set high
+  # enough that active sessions are not re-created on every probe.
+  keyed_limiter_ttl: 10m
+
+  # Maximum number of keyed limiter entries. Caps memory use when
+  # many short-lived sessions hit the server.
+  keyed_limiter_max_keys: 2048
+
+  # Maximum total probes per session over the session lifetime. Stops
+  # a runaway client from probing indefinitely.
+  max_calls_per_session: 500
+
+probes:
+  # Default timeout applied when the caller does not specify one.
+  default_timeout: 10s
+
+  # Hard cap on caller-supplied timeouts. The server refuses any
+  # caller-specified timeout longer than this.
+  max_timeout: 30s
+
+  # TCP probe: banner grab, raw connect, optional StartTLS upgrade.
+  tcp:
+    enabled: true
+
+    # Maximum bytes read from the peer after the banner is consumed.
+    # Caps memory use and stops abusive peers from filling buffers.
+    max_read_bytes: 4096
+
+  # HTTP probe: full request, optional redirect chain, optional
+  # headers, response body sampling.
+  http:
+    enabled: true
+
+    # Maximum response body size read from the wire. Larger responses
+    # are truncated. 1 MiB is enough for almost any diagnostic call.
+    max_body_bytes: 1048576       # 1 MiB
+
+    # Bytes of the response body returned to the caller. Bigger
+    # bodies are truncated with a marker. 4 KiB matches a typical
+    # banner plus headers.
+    max_returned_bytes: 4096
+
+    # Whether the prober follows redirects. Disable to force the
+    # caller to handle 3xx manually.
+    allow_redirect: true
+
+    # Maximum number of hops on a redirect chain. Every hop is
+    # re-checked against the allow-list; a redirect to a non-allowed
+    # target produces RedirectBlocked, not a tool error.
+    max_redirects: 5
+
+    # Header allow-list. Headers not on this list are silently
+    # stripped from the request before it is sent. This is the
+    # SSRF mitigation for HTTP: hostile callers cannot smuggle
+    # Host, Authorization, or Cookie headers.
+    header_allow_list:
+      - Accept
+      - Accept-Language
+      - User-Agent
+      - Cache-Control
+      - If-None-Match
+      - If-Modified-Since
+
+  # DNS probe: A/AAAA/MX/TXT lookups against the configured servers.
+  dns:
+    enabled: true
+
+    # DNS server allow-list. Each entry is a CIDR plus the set of
+    # tools it applies to. "tools" must include "dns_probe" or the
+    # entry is ignored for DNS lookups. Servers in private or
+    # link-local ranges are refused even when allow-listed, to avoid
+    # probing internal resolvers from a public-facing agent.
+    allowed_servers:
+      - type: cidr
+        pattern: "127.0.0.0/8"
+        tools: ["dns_probe"]
+        comment: "loopback DNS for local testing"
+
+    # Allow the system resolver as a fallback when allowed_servers is
+    # empty. Off by default because the system resolver depends on the
+    # host's resolv.conf, which is not under the operator's control.
+    allow_system_resolver: false
+
+    # When true, QNAMEs are validated against the same rules as HTTP
+    # targets: max length, max labels, entropy, and the allow-list.
+    # Without this, dns_probe can be used to exfiltrate data through
+    # high-entropy labels.
+    restrict_query_names: true
+
+    # Allowed QTYPEs. Anything outside this set is rejected.
+    # AXFR (zone transfer) and ANY are intentionally excluded: both
+    # are common exfiltration channels.
+    allowed_query_types: ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA", "CAA", "SRV", "PTR"]
+
+    # Maximum QNAME length in bytes. RFC 1035 caps at 253. Anything
+    # longer is suspicious.
+    max_name_length: 253
+
+    # Maximum number of labels in the QNAME. 10 covers any real
+    # hostname; longer names are typical of DNS tunnelling.
+    max_labels: 10
+
+    # Maximum length of a single label in bytes. RFC 1035 caps at
+    # 63. Longer labels are unusual.
+    max_label_length: 63
+
+    # Maximum response size in bytes. Larger responses are
+    # truncated. 4 KiB covers all common record types.
+    max_response_bytes: 4096
+
+    # Reject labels with Shannon entropy above max_entropy_bits.
+    # Used to catch DNS exfiltration where the QNAME is the
+    # exfiltrated data.
+    block_high_entropy_labels: true
+
+    # Entropy threshold. 4.0 bits/char catches base32/hex-encoded
+    # payloads while letting ordinary hostnames through.
+    max_entropy_bits: 4.0
+
+    # Transport allow-list. UDP and TCP cover the standard cases;
+    # DoT (DNS-over-TLS) is intentionally off because the dialer
+    # would need a separate TLS configuration and the use case is
+    # narrow.
+    allow_udp: true
+    allow_tcp: true
+    allow_dot: false
+
+    # Default transport when the caller does not specify one.
+    default_protocol: udp
+
+    # Per-query timeout. Should be lower than default_timeout.
+    timeout: 3s
+
+  # TLS diagnose: handshake, chain validation, optional active
+  # phases. The default mode is passive: one handshake, one chain
+  # inspection, one OCSP read. Active phases multiply the network
+  # footprint and must be opted in.
+  tls:
+    enabled: true
+
+    # Default port when the caller does not specify one. 443 covers
+    # HTTPS.
+    default_port: 443
+
+    # Total budget for the whole diagnose call across all phases.
+    # The prober stops issuing new phases when this is exceeded.
+    total_budget: 15s
+
+    # Timeout for a single handshake attempt.
+    handshake_timeout: 10s
+
+    # Minimum TLS version the prober will offer when probing the
+    # server's protocol support. The server is reported as
+    # supporting any version it negotiates that is at least this
+    # high.
+    min_tls_version: "1.2"
+
+    # Maximum TLS version the prober offers. "1.3" means TLS 1.2 and
+    # 1.3 only; the prober never offers 1.0 or 1.1 even if the server
+    # would accept them. Set to "1.2" only if you also want to know
+    # whether the server supports 1.3.
+    max_tls_version: "1.3"
+
+    # AIA fetch: follow the Authority Information Access URL in the
+    # certificate to fetch issuer certificates. The URL is taken
+    # from an untrusted source (the cert), so this is a secondary
+    # SSRF channel. Off by default. Enable only when you have a
+    # TargetRule with purpose [aia_fetch] in your policy file.
+    allow_aia_fetch: false
+
+    # OCSP query: send a POST to the OCSP responder URL embedded in
+    # the certificate. Same SSRF concern as AIA. Enable only with a
+    # TargetRule carrying purpose [ocsp_query].
+    allow_ocsp_query: false
+
+    # Days before expiry at which the certificate is reported as
+    # "expiring soon".
+    expiring_soon_days: 30
+
+    # Days before expiry at which the certificate is reported as
+    # "expiring critical". Anything below this triggers a critical
+    # finding.
+    expiring_critical_days: 7
+
+    # Maximum acceptable certificate validity period in days. Anything
+    # longer is flagged. 398 days is the current CA/Browser Forum
+    # baseline.
+    max_validity_days: 398
+
+    # Threshold above which the validity period is flagged as
+    # "excessive" rather than just "long". 825 days = 2 years + some
+    # buffer.
+    excessive_validity_days: 825
+
+    # Minimum RSA key size in bits. Smaller RSA keys are flagged.
+    min_rsa_key_bits: 2048
+
+    # Minimum EC key size in bits. Smaller EC keys are flagged.
+    # 224 bits is the practical floor; 256 is the modern default.
+    min_ec_key_bits: 256
+
+audit:
+  # Append an audit record for every probe. Records include target,
+  # tool, outcome, and (optionally) findings and outbound URLs.
+  enabled: true
+
+  # Output format. json is the right choice for log aggregators
+  # (Loki, Elasticsearch). text is human-readable for tail.
+  format: json
+
+  # Where to write records. stderr is the default and matches the
+  # MCP stdio convention; the records do not pollute the JSON-RPC
+  # stream on stdout. file paths like "/var/log/netprobe/audit.log"
+  # also work and support rotation via logrotate.
+  output: stderr
+
+  # Minimum record level. debug is verbose; info is the production
+  # default. warn and error suppress successful probes.
+  level: info
+
+  # When true, every outbound URL hit during a probe (AIA, OCSP,
+  # redirects) is recorded alongside the target. Useful for
+  # forensics; noisy on chatty servers.
+  log_targets: false
+
+metrics:
+  # Prometheus exposition endpoint. Disabled by default in production
+  # because the endpoint itself is unauthenticated. Bind to
+  # 127.0.0.1 and scrape from localhost, or put it behind a reverse
+  # proxy that enforces auth.
+  enabled: true
+  addr: "127.0.0.1:9101"
+
+  # HTTP path of the metrics endpoint.
+  path: /metrics
