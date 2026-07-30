@@ -1,0 +1,116 @@
+server:
+  transport: stdio
+  name: netprobe-mcp
+  version: "0.1.0"
+  shutdown_grace: 10s
+
+security:
+  targets:
+    deny: []
+    allow:
+      - type: cidr
+        pattern: "127.0.0.0/8"
+        tools: ["tcp_probe", "http_probe", "dns_probe", "tls_diagnose", "icmp_probe", "probe_check_target"]
+        comment: "loopback for local testing only"
+  network:
+    block_private: false
+    block_loopback: false
+    block_link_local: true
+    block_multicast: true
+    block_unspecified: true
+    block_cloud_metadata: true
+    allow_ipv4: true
+    allow_ipv6: false
+  dns:
+    resolvers: []
+    timeout: 3s
+    cache_ttl: 60s
+    cache_max_entries: 4096
+    max_addresses_per_name: 4
+
+limits:
+  global: { rps: 5, burst: 10 }
+  per_target: { rps: 0.5, burst: 3 }
+  per_session: { rps: 2, burst: 5 }
+  per_tool:
+    tcp_probe: { rps: 3, burst: 6 }
+    http_probe: { rps: 2, burst: 4 }
+    dns_probe:  { rps: 2, burst: 4 }
+    tls_diagnose: { rps: 2, burst: 4 }
+  max_concurrent_probes: 8
+  keyed_limiter_ttl: 10m
+  keyed_limiter_max_keys: 2048
+  max_calls_per_session: 500
+
+probes:
+  default_timeout: 10s
+  max_timeout: 30s
+  tcp:
+    enabled: true
+    max_read_bytes: 4096
+  http:
+    enabled: true
+    max_body_bytes: 1048576       # 1 MiB
+    max_returned_bytes: 4096
+    allow_redirect: true
+    max_redirects: 5
+    header_allow_list:
+      - Accept
+      - Accept-Language
+      - User-Agent
+      - Cache-Control
+      - If-None-Match
+      - If-Modified-Since
+  dns:
+    enabled: true
+    allowed_servers:
+      - type: cidr
+        pattern: "127.0.0.0/8"
+        tools: ["dns_probe"]
+        comment: "loopback DNS for local testing"
+    allow_system_resolver: false
+    restrict_query_names: true
+    allowed_query_types: ["A", "AAAA", "CNAME", "MX", "TXT", "NS", "SOA", "CAA", "SRV", "PTR"]
+    max_name_length: 253
+    max_labels: 10
+    max_label_length: 63
+    max_response_bytes: 4096
+    block_high_entropy_labels: true
+    max_entropy_bits: 4.0
+    allow_udp: true
+    allow_tcp: true
+    allow_dot: false
+    default_protocol: udp
+    timeout: 3s
+  tls:
+    enabled: true
+    default_port: 443
+    total_budget: 15s
+    handshake_timeout: 10s
+    min_tls_version: "1.2"
+    max_tls_version: "1.3"
+    # Hard-off by default: these are secondary SSRF channels
+    # controlled by the target certificate. Set to true only when
+    # you have explicit TargetRule entries with purposes:
+    # [aia_fetch] (resp. ocsp_query) — both the policy and the
+    # per-call flag must agree.
+    allow_aia_fetch: false
+    allow_ocsp_query: false
+    expiring_soon_days: 30
+    expiring_critical_days: 7
+    max_validity_days: 398
+    excessive_validity_days: 825
+    min_rsa_key_bits: 2048
+    min_ec_key_bits: 256
+
+audit:
+  enabled: true
+  format: json
+  output: stderr
+  level: info
+  log_targets: false
+
+metrics:
+  enabled: true
+  addr: "127.0.0.1:9101"
+  path: /metrics

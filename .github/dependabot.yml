@@ -1,0 +1,37 @@
+# Dependabot configuration for netprobe-mcp.
+#
+# We pin Go modules to patch-level updates. Major Go version bumps
+# require manual intervention because the project pins to 1.25.7 in
+# go.mod and CI runs the same version.
+
+version: 2
+
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "go"
+    # Patch and minor updates for now. Major bumps are reviewed
+    # manually because they may pull breaking API changes from
+    # upstream libraries (modelcontextprotocol/go-sdk, miekg/dns,
+    # etc.).
+    allowed-update-type-list:
+      - "patch"
+      - "minor"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "ci"

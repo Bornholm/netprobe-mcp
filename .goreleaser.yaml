@@ -1,0 +1,95 @@
+# GoReleaser configuration for netprobe-mcp.
+#
+# Goals:
+#   - One binary per OS/arch, statically linked (CGO_ENABLED=0) so the
+#     same archive works on Debian, Ubuntu, Arch, Manjaro, and the
+#     Alpine/musl images without a C toolchain.
+#   - Archive the source files the operator needs at runtime
+#     (LICENSE, configs/policy.example.yaml). Documentation files
+#     are intentionally excluded: README.md and docs/ are not yet
+#     written, so listing them in the archive would silently drop
+#     them. Re-add docs/* once Etape I lands.
+#   - Emit deb + archlinux packages through nfpm. The release
+#     artefact set stays small and predictable; no RPM, no APK
+#     (those are out of scope for the project at this stage).
+#   - Inject Version / LongVersion into the binary through ldflags
+#     so `netprobe-mcp -version` reports the released commit rather
+#     than the literal "dev".
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: netprobe-mcp
+    # No cgo: all dependencies are pure Go (modelcontextprotocol/go-sdk,
+    # miekg/dns, etc.). Cross-compilation just works.
+    env:
+      - CGO_ENABLED=0
+    targets: [go_first_class]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    dir: ./cmd/netprobe-mcp
+    binary: netprobe-mcp
+    flags:
+      - -trimpath
+    ldflags:
+      # -w -s strips DWARF and the symbol table; the binary is
+      # distributed over GitHub Releases, not debugged locally.
+      # -X overrides the package-level vars in internal/build.
+      - -w -s -X 'github.com/bornholm/netprobe-mcp/internal/build.Version={{ .Version }}' -X 'github.com/bornholm/netprobe-mcp/internal/build.LongVersion={{ .Version }} ({{ .Commit }})'
+
+archives:
+  - id: netprobe-mcp
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # NOTE: docs/* is not listed because Etape I (README +
+    # SECURITY.md + TOOLS.md + THREAT_MODEL.md) is not yet shipped.
+    # When those files land, add them here in a single change so the
+    # archive and the nfpms `contents:` block stay in sync.
+    files:
+      - LICENSE
+      - src: configs/policy.example.yaml
+        dst: configs/policy.example.yaml
+
+nfpms:
+  - id: netprobe-mcp
+    package_name: netprobe-mcp
+    formats:
+      - deb
+      - archlinux
+    vendor: bornholm
+    homepage: https://github.com/bornholm/netprobe-mcp
+    maintainer: William Petit <will.arcanadelirium@gmail.com>
+    description: netprobe-mcp - auditable network probing exposed as a Model Context Protocol server.
+    license: MIT
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/netprobe-mcp/LICENSE
+      # Sample policy shipped at /etc/netprobe-mcp/policy.example.yaml
+      # so operators have a starting point. The binary itself takes
+      # --config to override the path; this file is documentation,
+      # not auto-loaded.
+      - src: configs/policy.example.yaml
+        dst: /etc/netprobe-mcp/policy.example.yaml
+        file_info: { mode: 0644 }
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  name_template: "v{{ .Version }}"
