@@ -24,6 +24,7 @@ type Deps struct {
 	HTTPProber   *HTTPDep
 	DNSProber    *DNSDep
 	ICMPProber   *ICMPDep
+	GRPCProber   *GRPCDep
 	TLSDiagnoser *TLSDep
 	Instructions string
 	Config       *config.Config
@@ -41,6 +42,7 @@ type Server struct {
 	httpProber  *HTTPDep
 	dnsProber   *DNSDep
 	icmpProber  *ICMPDep
+	grpcProber  *GRPCDep
 	tlsDiagnose *TLSDep
 	cfg         *config.Config
 }
@@ -63,6 +65,7 @@ func New(impl *mcp.Implementation, deps Deps) *Server {
 		httpProber:  deps.HTTPProber,
 		dnsProber:   deps.DNSProber,
 		icmpProber:  deps.ICMPProber,
+		grpcProber:  deps.GRPCProber,
 		tlsDiagnose: deps.TLSDiagnoser,
 		cfg:         deps.Config,
 	}
@@ -87,6 +90,11 @@ func New(impl *mcp.Implementation, deps Deps) *Server {
 	if deps.ICMPProber != nil {
 		if err := s.registerICMPProbe(); err != nil {
 			deps.Logger.Error("register icmp_probe failed", slog.Any("err", err))
+		}
+	}
+	if deps.GRPCProber != nil {
+		if err := s.registerGRPCProbe(); err != nil {
+			deps.Logger.Error("register grpc_probe failed", slog.Any("err", err))
 		}
 	}
 	if deps.TLSDiagnoser != nil {

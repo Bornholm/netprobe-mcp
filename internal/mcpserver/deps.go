@@ -49,3 +49,16 @@ type TLSDep struct {
 func (t *TLSDep) Run(ctx context.Context, target *security.SafeTarget, opts tlsdiag.DiagnoseOptions) (*tlsdiag.Report, error) {
 	return t.Analyzer.Diagnose(target, opts)
 }
+
+// GRPCDep bundles everything a grpc_probe handler needs. Only the
+// Health/Check method is exposed (PLAN §7.6).
+type GRPCDep struct {
+	Prober           *probe.GRPCProber
+	DialTimeout      time.Duration
+	DefaultPort      uint16
+	HandshakeTimeout time.Duration
+}
+
+func (g *GRPCDep) Run(ctx context.Context, target *security.SafeTarget, dialer *security.SafeDialer, opts probe.GRPCOptions) (*probe.GRPCProbeResult, error) {
+	return g.Prober.Run(ctx, target, dialer, opts)
+}

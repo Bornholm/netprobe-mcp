@@ -93,6 +93,9 @@ func (s *Server) handleProbePolicy(_ context.Context, _ *mcp.CallToolRequest, _ 
 	if s.icmpProber != nil {
 		out.Probes = append(out.Probes, "icmp_probe")
 	}
+	if s.grpcProber != nil {
+		out.Probes = append(out.Probes, "grpc_probe")
+	}
 	if s.tlsDiagnose != nil {
 		out.Probes = append(out.Probes, "tls_diagnose")
 	}

@@ -222,7 +222,30 @@ type ProbesConfig struct {
 	HTTP           HTTPProbeConfig `yaml:"http"`
 	DNS            DNSProbeConfig  `yaml:"dns"`
 	ICMP           ICMPProbeConfig `yaml:"icmp"`
+	GRPC           GRPCProbeConfig `yaml:"grpc"`
 	TLS            TLSDiagConfig   `yaml:"tls"`
+}
+
+// GRPCProbeConfig governs the grpc_probe tool.
+//
+// Per PLAN §7.6, only the gRPC Health Checking Protocol
+// (/grpc.health.v1.Health/Check) is exposed. No reflection, no
+// arbitrary method invocation. The Service field is a *name*, not
+// an instruction: it is passed verbatim into the HealthCheckRequest,
+// which the server interprets; the prober never uses it to pick
+// an RPC method or target.
+type GRPCProbeConfig struct {
+	Enabled bool `yaml:"enabled"`
+
+	// DefaultPort used when the call does not specify one. 50051
+	// is the standard plaintext gRPC port; 443 is common when
+	// gRPC is reverse-proxied behind TLS.
+	DefaultPort uint16 `yaml:"default_port"`
+
+	// HandshakeTimeout caps the TLS handshake when UseTLS=true.
+	// Set this low: gRPC probes are shallow, they should never
+	// wait more than a few seconds.
+	HandshakeTimeout time.Duration `yaml:"handshake_timeout"`
 }
 
 type TCPProbeConfig struct {
@@ -575,6 +598,10 @@ func Default() *Config {
 	c.Probes.ICMP.Interval = 1 * time.Second
 	c.Probes.ICMP.PayloadSize = 56
 
+	c.Probes.GRPC.Enabled = false // off by default; requires operator opt-in
+	c.Probes.GRPC.DefaultPort = 50051
+	c.Probes.GRPC.HandshakeTimeout = 5 * time.Second
+
 	c.Probes.TLS.Enabled = true
 	c.Probes.TLS.DefaultPort = 443
 	c.Probes.TLS.TotalBudget = 15 * time.Second
@@ -800,6 +827,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Probes.ICMP.PayloadSize < 0 || c.Probes.ICMP.PayloadSize > 1400 {
 		errs = append(errs, fmt.Errorf("probes.icmp.payload_size must be in 0..1400 (got %d)", c.Probes.ICMP.PayloadSize))
+	}
+
+	if c.Probes.GRPC.Enabled {
+		if c.Probes.GRPC.DefaultPort == 0 {
+			c.Probes.GRPC.DefaultPort = 50051
+		}
+		if c.Probes.GRPC.HandshakeTimeout <= 0 {
+			c.Probes.GRPC.HandshakeTimeout = 5 * time.Second
+		}
+		if c.Probes.GRPC.HandshakeTimeout > c.Probes.MaxTimeout {
+			c.Probes.GRPC.HandshakeTimeout = c.Probes.MaxTimeout
+		}
 	}
 
 	if !c.Probes.HTTP.Enabled {

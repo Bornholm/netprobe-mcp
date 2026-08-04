@@ -257,6 +257,8 @@ func run() error {
 		DialTimeout: cfg.Probes.DefaultTimeout,
 	}
 
+	grpcDep := grpcDep(&cfg.Probes)
+
 	srv := mcpserver.New(impl, mcpserver.Deps{
 		Guard:   guard,
 		Limiter: limiter,
@@ -276,6 +278,7 @@ func run() error {
 		},
 		DNSProber:    dnsDep(&cfg.Probes),
 		ICMPProber:   icmpDep,
+		GRPCProber:   grpcDep,
 		TLSDiagnoser: tlsDep(&cfg.Probes, dialer, guard),
 		Instructions: defaultInstructions,
 	})
@@ -309,6 +312,22 @@ func dnsDep(p *config.ProbesConfig) *mcpserver.DNSDep {
 	return &mcpserver.DNSDep{
 		Prober:      probe.NewDNSProberFromConfig(p.DNS, p.DefaultTimeout, p.DefaultTimeout),
 		DialTimeout: p.DefaultTimeout,
+	}
+}
+
+// grpcDep builds the gRPC health-check prober. Returns nil when the
+// feature is disabled in the policy file — the MCP server then
+// omits the grpc_probe tool entirely (PLAN §9.3, "désactivé par
+// configuration = outil non enregistré").
+func grpcDep(p *config.ProbesConfig) *mcpserver.GRPCDep {
+	if !p.GRPC.Enabled {
+		return nil
+	}
+	return &mcpserver.GRPCDep{
+		Prober:           probe.NewGRPCProber(p.DefaultTimeout, p.GRPC.DefaultPort),
+		DialTimeout:      p.DefaultTimeout,
+		DefaultPort:      p.GRPC.DefaultPort,
+		HandshakeTimeout: p.GRPC.HandshakeTimeout,
 	}
 }
 
