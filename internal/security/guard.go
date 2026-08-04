@@ -32,6 +32,14 @@ type Request struct {
 	Path      string
 	Method    string
 	Purpose   Purpose
+
+	// RateWeight is the number of per-target rate-limit tokens
+	// this call consumes. Defaults to 1 when zero or negative.
+	// Used by ICMP to charge one token per packet sent
+	// (PLAN §7.4). Other limiters (session quota, per-tool,
+	// global, per-session, concurrency semaphore) always charge
+	// 1, regardless of RateWeight.
+	RateWeight int
 }
 
 // SafeTarget is the only addressable identity downstream code may dial.
@@ -173,11 +181,11 @@ func (g *Guard) Authorize(ctx context.Context, req Request) (*SafeTarget, error)
 		}
 	}
 
-	release, err := g.limiter.Acquire(ctx, errs.RateKey{
+	release, err := g.limiter.AcquireN(ctx, errs.RateKey{
 		SessionID: req.SessionID,
 		Tool:      req.Tool,
 		Target:    primary.String(),
-	})
+	}, req.RateWeight)
 	if err != nil {
 		var de *errs.DenyError
 		if errors.As(err, &de) {

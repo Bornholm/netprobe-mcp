@@ -72,6 +72,7 @@ type RateKey struct {
 // Defined here so both packages can compile against it without cycles.
 type Limiter interface {
 	Acquire(ctx context.Context, key RateKey) (release func(), err error)
+	AcquireN(ctx context.Context, key RateKey, weight int) (release func(), err error)
 }
 
 // PublicReason returns a sanitized, LLM-safe message.

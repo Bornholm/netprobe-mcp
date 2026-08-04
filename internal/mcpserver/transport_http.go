@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/bornholm/netprobe-mcp/internal/audit"
+	"github.com/bornholm/netprobe-mcp/internal/auth"
 	"github.com/bornholm/netprobe-mcp/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -95,10 +96,10 @@ func newBearerTokenAuth(cfg config.TokenBearerAuth) (*bearerTokenAuth, error) {
 
 // HashToken returns the SHA-256 hex digest of the supplied token.
 // The exposed helper exists so operators can mint hashes offline
-// without spinning a server.
+// without spinning a server. The encoding is shared with the
+// `netprobe-mcp hash` CLI subcommand (see internal/auth).
 func HashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return fmt.Sprintf("%x", sum)
+	return auth.HashToken(token)
 }
 
 func unhex(hi, lo byte) (byte, error) {

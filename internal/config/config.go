@@ -64,9 +64,10 @@ type HTTPAuth struct {
 // tokens. Tokens are stored as SHA-256 hashes so the YAML file
 // itself never leaks plaintext credentials.
 //
-// On Linux the recommended CLI helper (TODO: ship in cmd/) is
+// On Linux the recommended CLI helper is
 // `netprobe-mcp hash <plain>` which prints the SHA-256 hex of the
-// token.
+// token (see cmd/netprobe-mcp). The encoding is the one used by
+// internal/auth.HashToken, kept in one place.
 type TokenBearerAuth struct {
 	// Enabled turns the bearer-token auth scheme on.
 	Enabled bool `yaml:"enabled"`
@@ -220,12 +221,39 @@ type ProbesConfig struct {
 	TCP            TCPProbeConfig  `yaml:"tcp"`
 	HTTP           HTTPProbeConfig `yaml:"http"`
 	DNS            DNSProbeConfig  `yaml:"dns"`
+	ICMP           ICMPProbeConfig `yaml:"icmp"`
 	TLS            TLSDiagConfig   `yaml:"tls"`
 }
 
 type TCPProbeConfig struct {
 	Enabled      bool  `yaml:"enabled"`
 	MaxReadBytes int64 `yaml:"max_read_bytes"`
+}
+
+// ICMPProbeConfig governs the icmp_probe tool. The thresholds are
+// clamped at runtime to keep the floor values mandated by the
+// protocol (200ms interval, 1400-byte payload cap, 10 packets) and
+// to defend against an LLM requesting arbitrarily long probes
+// against a single target. The hard caps below are applied
+// independently of the configured values; setting a larger number
+// does not raise them.
+type ICMPProbeConfig struct {
+	// Enabled toggles the probe registration. When false, the
+	// tool is not advertised to the MCP client.
+	Enabled bool `yaml:"enabled"`
+
+	// MaxCount is the upper bound on echo requests per call.
+	// Hard-capped at 10 in the prober (PLAN §7.4).
+	MaxCount int `yaml:"max_count"`
+
+	// Interval is the delay between echo requests. Hard-capped
+	// at 200ms minimum in the prober.
+	Interval time.Duration `yaml:"interval"`
+
+	// PayloadSize is the per-echo payload in bytes (after the
+	// 16-byte magic prefix). Hard-capped at 1400 bytes; values
+	// outside [0,1400] are rejected at validate time.
+	PayloadSize int `yaml:"payload_size"`
 }
 
 // HTTPProbeConfig governs the http_probe tool.
@@ -538,6 +566,15 @@ func Default() *Config {
 		},
 	}
 
+	// ICMP defaults: 3 echoes, 1s apart, 56-byte payload (matches
+	// the Linux ping default). The prober may override these via
+	// per-call options; the values here are ceilings and floors,
+	// not target values.
+	c.Probes.ICMP.Enabled = true
+	c.Probes.ICMP.MaxCount = 3
+	c.Probes.ICMP.Interval = 1 * time.Second
+	c.Probes.ICMP.PayloadSize = 56
+
 	c.Probes.TLS.Enabled = true
 	c.Probes.TLS.DefaultPort = 443
 	c.Probes.TLS.TotalBudget = 15 * time.Second
@@ -743,6 +780,26 @@ func (c *Config) Validate() error {
 
 	if c.Probes.TCP.MaxReadBytes <= 0 {
 		c.Probes.TCP.MaxReadBytes = 4096
+	}
+
+	// ICMP defaults. The hard caps in the prober (10 packets,
+	// 200ms interval floor, 1400-byte payload cap) remain in
+	// force regardless of the configured values; the validation
+	// here only fills missing entries with sane defaults.
+	if c.Probes.ICMP.MaxCount <= 0 {
+		c.Probes.ICMP.MaxCount = 3
+	}
+	if c.Probes.ICMP.MaxCount > 10 {
+		errs = append(errs, fmt.Errorf("probes.icmp.max_count cannot exceed 10 (got %d)", c.Probes.ICMP.MaxCount))
+	}
+	if c.Probes.ICMP.Interval <= 0 {
+		c.Probes.ICMP.Interval = 1 * time.Second
+	}
+	if c.Probes.ICMP.Interval < 200*time.Millisecond {
+		errs = append(errs, fmt.Errorf("probes.icmp.interval cannot be below 200ms (got %s)", c.Probes.ICMP.Interval))
+	}
+	if c.Probes.ICMP.PayloadSize < 0 || c.Probes.ICMP.PayloadSize > 1400 {
+		errs = append(errs, fmt.Errorf("probes.icmp.payload_size must be in 0..1400 (got %d)", c.Probes.ICMP.PayloadSize))
 	}
 
 	if !c.Probes.HTTP.Enabled {

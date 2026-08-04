@@ -22,7 +22,7 @@ func TestDetectCapability_AlwaysReturnsSomething(t *testing.T) {
 }
 
 func TestProber_Validate_DefaultsAndBounds(t *testing.T) {
-	p := NewProber(ModeUnprivileged, 5*time.Second)
+	p := NewProber(ModeUnprivileged, 5*time.Second, 0, 0, 0)
 	opts := &Options{Host: "127.0.0.1"}
 	if err := p.Validate(opts); err != nil {
 		t.Fatal(err)
@@ -62,14 +62,14 @@ func TestProber_Validate_DefaultsAndBounds(t *testing.T) {
 }
 
 func TestProber_RejectsEmptyHost(t *testing.T) {
-	p := NewProber(ModeUnprivileged, time.Second)
+	p := NewProber(ModeUnprivileged, time.Second, 0, 0, 0)
 	if err := p.Validate(&Options{}); err == nil {
 		t.Error("expected error on missing host")
 	}
 }
 
 func TestProber_UnavailableMode(t *testing.T) {
-	p := NewProber(ModeUnavailable, time.Second)
+	p := NewProber(ModeUnavailable, time.Second, 0, 0, 0)
 	_, err := p.Run(context.Background(), &security.SafeTarget{
 		Hostname: "127.0.0.1",
 		IP:       netip.MustParseAddr("127.0.0.1"),
@@ -90,7 +90,7 @@ func TestProber_LoopbackEcho_Realistic(t *testing.T) {
 	// destination. Some sandboxes (e.g. CAP_NET_RAW-less
 	// containers) report a mode but fail to actually transmit to
 	// loopback.
-	p := NewProber(cap.Mode, 2*time.Second)
+	p := NewProber(cap.Mode, 2*time.Second, 0, 0, 0)
 	res, err := p.Run(context.Background(), &security.SafeTarget{
 		Hostname: "127.0.0.1",
 		IP:       netip.MustParseAddr("127.0.0.1"),
@@ -119,5 +119,71 @@ func TestBuildPayload(t *testing.T) {
 		if int(b) != i {
 			t.Errorf("buildPayload[%d] = %d, want %d", i, b, i)
 		}
+	}
+}
+
+func TestNewProber_HonoursOperatorCeilings(t *testing.T) {
+	// Operator narrows the ceilings well below the hard caps.
+	p := NewProber(ModeUnprivileged, time.Second, 4, 500*time.Millisecond, 200)
+	if p.maxCount != 4 {
+		t.Errorf("maxCount = %d, want 4", p.maxCount)
+	}
+	if p.minInterval != 500*time.Millisecond {
+		t.Errorf("minInterval = %s, want 500ms", p.minInterval)
+	}
+	if p.maxBytes != 200 {
+		t.Errorf("maxBytes = %d, want 200", p.maxBytes)
+	}
+
+	// Agent tries Count=10 — must be clamped to 4.
+	opts := &Options{Host: "127.0.0.1", Count: 10, IntervalMs: 200}
+	if err := p.Validate(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Count != 4 {
+		t.Errorf("Count clamped to %d, want 4", opts.Count)
+	}
+
+	// Agent tries IntervalMs=100 — must be clamped to 500ms.
+	opts = &Options{Host: "127.0.0.1", IntervalMs: 100}
+	if err := p.Validate(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.IntervalMs != 500 {
+		t.Errorf("IntervalMs clamped to %d, want 500", opts.IntervalMs)
+	}
+
+	// Agent tries payload 9999 — must error (above maxBytes=200).
+	if err := p.Validate(&Options{Host: "127.0.0.1", PayloadSize: 9999}); err == nil {
+		t.Error("expected error for oversized payload")
+	}
+}
+
+func TestNewProber_HardCapsAboveOperator(t *testing.T) {
+	// Operator tries to widen beyond the PLAN §7.4 hard caps.
+	p := NewProber(ModeUnprivileged, time.Second, 9999, 1*time.Millisecond, 9999)
+	if p.maxCount != 10 {
+		t.Errorf("maxCount = %d, hard cap should clamp to 10", p.maxCount)
+	}
+	if p.minInterval != 200*time.Millisecond {
+		t.Errorf("minInterval = %s, hard cap should clamp to 200ms", p.minInterval)
+	}
+	if p.maxBytes != 1400 {
+		t.Errorf("maxBytes = %d, hard cap should clamp to 1400", p.maxBytes)
+	}
+}
+
+func TestNewProber_DefaultsOnZero(t *testing.T) {
+	// Operator leaves everything at zero. Defaults match the
+	// PLAN §7.4 hard caps.
+	p := NewProber(ModeUnprivileged, time.Second, 0, 0, 0)
+	if p.maxCount != 10 {
+		t.Errorf("default maxCount = %d, want 10", p.maxCount)
+	}
+	if p.minInterval != 200*time.Millisecond {
+		t.Errorf("default minInterval = %s, want 200ms", p.minInterval)
+	}
+	if p.maxBytes != 1400 {
+		t.Errorf("default maxBytes = %d, want 1400", p.maxBytes)
 	}
 }

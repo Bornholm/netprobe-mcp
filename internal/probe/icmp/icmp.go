@@ -107,22 +107,51 @@ type Result struct {
 // The constructor is given a Mode chosen at boot by
 // DetectCapability; the prober refuses to send if the mode is
 // ModeUnavailable.
+//
+// Hard caps (10 packets max, 200ms minimum interval, 1400-byte
+// payload ceiling) are applied independently of the per-call
+// configuration so a misconfigured policy cannot widen them.
 type Prober struct {
-	mode     Mode
-	timeout  time.Duration
-	maxCount int
-	maxBytes int
+	mode        Mode
+	timeout     time.Duration
+	maxCount    int
+	maxBytes    int
+	minInterval time.Duration
 }
 
 // NewProber builds an ICMP prober. mode is typically the value
 // returned by DetectCapability at boot; passing ModeUnavailable here
 // causes every Run() call to fail with a structured error.
-func NewProber(mode Mode, defaultTimeout time.Duration) *Prober {
+//
+// maxCount, minInterval and maxBytes are the operator-tunable
+// ceilings. They default to the PLAN §7.4 values (10, 200ms, 1400)
+// when the supplied configuration leaves the field zero or
+// negative, but the hard caps in Run() still apply on top.
+func NewProber(mode Mode, defaultTimeout time.Duration, maxCount int, minInterval time.Duration, maxBytes int) *Prober {
+	if maxCount <= 0 {
+		maxCount = 10
+	}
+	if maxCount > 10 {
+		maxCount = 10
+	}
+	if minInterval <= 0 {
+		minInterval = 200 * time.Millisecond
+	}
+	if minInterval < 200*time.Millisecond {
+		minInterval = 200 * time.Millisecond
+	}
+	if maxBytes <= 0 {
+		maxBytes = 1400
+	}
+	if maxBytes > 1400 {
+		maxBytes = 1400
+	}
 	return &Prober{
-		mode:     mode,
-		timeout:  defaultTimeout,
-		maxCount: 10,
-		maxBytes: 1400,
+		mode:        mode,
+		timeout:     defaultTimeout,
+		maxCount:    maxCount,
+		minInterval: minInterval,
+		maxBytes:    maxBytes,
 	}
 }
 
@@ -146,11 +175,11 @@ func (p *Prober) Validate(opts *Options) error {
 		opts.Count = p.maxCount
 	}
 	if opts.IntervalMs <= 0 {
-		opts.IntervalMs = 200
+		opts.IntervalMs = int(p.minInterval / time.Millisecond)
 	}
-	if opts.IntervalMs < 200 {
-		// PLAN §7.4: keep the floor at 200ms.
-		opts.IntervalMs = 200
+	if time.Duration(opts.IntervalMs)*time.Millisecond < p.minInterval {
+		// PLAN §7.4: keep the configured floor (200ms by default).
+		opts.IntervalMs = int(p.minInterval / time.Millisecond)
 	}
 	if opts.TimeoutMs <= 0 {
 		opts.TimeoutMs = int(p.timeout / time.Millisecond)

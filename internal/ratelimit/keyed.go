@@ -89,6 +89,64 @@ func (k *KeyedLimiter) Acquire(_ context.Context, key string) (func(), error) {
 	return func() { r.Cancel() }, nil
 }
 
+// AllowN reserves n tokens for key. Returns a DenyError when the
+// bucket cannot satisfy the request without waiting (PLAN §6.2:
+// "refuser plutôt qu'attendre"). The release func is a no-op on
+// success since the tokens are legitimately consumed.
+//
+// This is the per-packet counterpart used by ICMP: a probe sending
+// count=5 packets must consume 5 tokens from the per-target bucket
+// rather than 1.
+func (k *KeyedLimiter) AllowN(key string, n int) error {
+	if n <= 1 {
+		// Fast path: 1-token reservation goes through the
+		// existing Acquire path which is exercised by the
+		// rate-limit test suite.
+		_, err := k.Acquire(context.Background(), key)
+		return err
+	}
+	if key == "" {
+		return nil
+	}
+	k.mu.Lock()
+	e, ok := k.entries[key]
+	if ok {
+		k.order.moveToFront(e.order)
+		e.lastSeen = time.Now()
+	} else {
+		k.evictLocked()
+		e = &keyedEntry{
+			lim:      rate.NewLimiter(rate.Limit(k.rps), k.burst),
+			lastSeen: time.Now(),
+			key:      key,
+		}
+		e.order = k.order.pushFront(e)
+		k.entries[key] = e
+	}
+	lim := e.lim
+	k.mu.Unlock()
+
+	r := lim.ReserveN(time.Now(), n)
+	if !r.OK() {
+		return &errs.DenyError{
+			Category: errs.RateLimit,
+			Reason:   k.name + " rate limit exceeded",
+			Hint:     "retry shortly",
+		}
+	}
+	delay := r.Delay()
+	if delay > 0 {
+		r.Cancel()
+		return &errs.DenyError{
+			Category:   errs.RateLimit,
+			Reason:     k.name + " rate limit exceeded",
+			Hint:       "retry shortly",
+			RetryAfter: delay.Round(time.Millisecond),
+		}
+	}
+	return nil
+}
+
 func (k *KeyedLimiter) evictLocked() {
 	now := time.Now()
 	for k.order.tail != nil && now.Sub(k.order.tail.entry.lastSeen) > k.ttl {

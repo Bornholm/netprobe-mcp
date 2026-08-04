@@ -19,6 +19,20 @@ import (
 )
 
 func newICMPTestServer(t *testing.T, mode icmp.Mode) *Server {
+	return newICMPTestServerWithLimits(t, mode, ratelimit.ManagerConfig{
+		Global:        ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		PerTarget:     ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		PerSession:    ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		MaxConcurrent: 64,
+		KeyedTTL:      time.Minute,
+		KeyedMaxKeys:  64,
+		MaxCalls:      1000,
+	})
+}
+
+// newICMPTestServerWithLimits lets rate-weight tests configure a
+// tight per-target burst so a Count > burst refusal is observable.
+func newICMPTestServerWithLimits(t *testing.T, mode icmp.Mode, rl ratelimit.ManagerConfig) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		Server: config.ServerConfig{Name: "netprobe-mcp-test", Version: "0.1.0"},
@@ -59,15 +73,7 @@ func newICMPTestServer(t *testing.T, mode icmp.Mode) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr := ratelimit.NewManager(ratelimit.ManagerConfig{
-		Global:        ratelimit.RateLimit{RPS: 1000, Burst: 1000},
-		PerTarget:     ratelimit.RateLimit{RPS: 1000, Burst: 1000},
-		PerSession:    ratelimit.RateLimit{RPS: 1000, Burst: 1000},
-		MaxConcurrent: 64,
-		KeyedTTL:      time.Minute,
-		KeyedMaxKeys:  64,
-		MaxCalls:      1000,
-	})
+	mgr := ratelimit.NewManager(rl)
 	g, err := security.NewGuard(&cfg.Security, resolver, dialer, filter, mgr)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +88,7 @@ func newICMPTestServer(t *testing.T, mode icmp.Mode) *Server {
 		audit:      logger,
 		metrics:    mreg,
 		logger:     discardLogger(),
-		icmpProber: &ICMPDep{Prober: icmp.NewProber(mode, cfg.Probes.DefaultTimeout)},
+		icmpProber: &ICMPDep{Prober: icmp.NewProber(mode, cfg.Probes.DefaultTimeout, 0, 0, 0)},
 		cfg:        cfg,
 	}
 }
@@ -140,6 +146,30 @@ func TestHandleICMPProbe_ValidationRejection(t *testing.T) {
 	_, _, err := s.handleICMPProbe(context.Background(), nil, icmp.Options{})
 	if err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+// TestHandleICMPProbe_RateWeightRefusal verifies that an icmp_probe
+// call with Count > per_target.burst is refused by the rate limiter
+// (PLAN §7.4: "count packets => count tokens"). The pipeline must
+// short-circuit before any ICMP packet is sent.
+func TestHandleICMPProbe_RateWeightRefusal(t *testing.T) {
+	s := newICMPTestServerWithLimits(t, icmp.ModeUnprivileged, ratelimit.ManagerConfig{
+		Global:        ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		PerTarget:     ratelimit.RateLimit{RPS: 1000, Burst: 2}, // tight burst
+		PerSession:    ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		MaxConcurrent: 8,
+		KeyedTTL:      time.Minute,
+		KeyedMaxKeys:  64,
+		MaxCalls:      1000,
+	})
+	_, _, err := s.handleICMPProbe(context.Background(), nil, icmp.Options{
+		Host:       "127.0.0.1",
+		Count:      5, // exceeds per-target burst of 2
+		IntervalMs: 200,
+	})
+	if err == nil {
+		t.Fatal("expected rate-limit refusal for Count=5 with burst=2")
 	}
 }
 

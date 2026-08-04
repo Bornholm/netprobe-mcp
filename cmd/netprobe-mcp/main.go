@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bornholm/netprobe-mcp/internal/audit"
+	"github.com/bornholm/netprobe-mcp/internal/auth"
 	"github.com/bornholm/netprobe-mcp/internal/build"
 	"github.com/bornholm/netprobe-mcp/internal/config"
 	"github.com/bornholm/netprobe-mcp/internal/mcpserver"
@@ -59,7 +61,17 @@ func (s *stringList) Set(v string) error {
 }
 
 func main() {
+	// Subcommands are detected AFTER flag parsing. We scan the
+	// argument list for a non-flag token and dispatch on its
+	// value. This means `netprobe-mcp hash <token>` works whether
+	// flags come first (`netprobe-mcp --config=foo hash bar`) or
+	// not (`netprobe-mcp hash bar`). Flags are still applied to
+	// the server path normally; subcommands ignore them.
 	flag.Parse()
+	if isSubcommand(flag.Args()) {
+		os.Exit(dispatchSubcommand(flag.Args()))
+	}
+
 	if *showVersion {
 		os.Stdout.WriteString("netprobe-mcp " + build.LongVersion + "\n")
 		return
@@ -69,6 +81,74 @@ func main() {
 		os.Stderr.WriteString("fatal: " + err.Error() + "\n")
 		os.Exit(2)
 	}
+}
+
+// isSubcommand reports whether the positional args start with a
+// known subcommand name.
+func isSubcommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "hash", "help":
+		return true
+	}
+	return false
+}
+
+// dispatchSubcommand handles CLI subcommands that must run without
+// touching the policy file or the server lifecycle. Returns the
+// process exit code.
+func dispatchSubcommand(args []string) int {
+	if len(args) == 0 {
+		return runHelpCommand()
+	}
+	switch args[0] {
+	case "hash":
+		return runHashCommand(args[1:])
+	case "help":
+		return runHelpCommand()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown subcommand %q\n", args[0])
+		return 2
+	}
+}
+
+// runHashCommand prints the SHA-256 hex digest of the supplied
+// token. The token is read verbatim from argv; operators are
+// expected to feed it through a shell mechanism that does not
+// leak it via process listings (e.g. a heredoc, an env var, or
+// direct typing). The output is the literal hash, no trailing
+// newline beyond the single \n printed by Fprintln, so it can be
+// pasted directly into a YAML policy file.
+func runHashCommand(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: netprobe-mcp hash <token>")
+		return 2
+	}
+	fmt.Fprintln(os.Stdout, auth.HashToken(args[0]))
+	return 0
+}
+
+// runHelpCommand emits a short help text and returns 0.
+func runHelpCommand() int {
+	printUsage(os.Stdout)
+	return 0
+}
+
+// printUsage emits a short help text to w. Kept intentionally
+// terse: the policy file is the primary documentation; this only
+// covers the CLI surface.
+func printUsage(w *os.File) {
+	fmt.Fprintln(w, "netprobe-mcp — auditable network probing MCP server")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  netprobe-mcp [flags]                 start the MCP server (stdio)")
+	fmt.Fprintln(w, "  netprobe-mcp hash <token>            print SHA-256 hex of <token>")
+	fmt.Fprintln(w, "  netprobe-mcp help                    print this help")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Flags:")
+	flag.PrintDefaults()
 }
 
 func run() error {
@@ -167,7 +247,13 @@ func run() error {
 		slog.String("mode", string(icmpCap.Mode)),
 		slog.String("reason", icmpCap.Reason))
 	icmpDep := &mcpserver.ICMPDep{
-		Prober:      icmp.NewProber(icmpCap.Mode, cfg.Probes.DefaultTimeout),
+		Prober: icmp.NewProber(
+			icmpCap.Mode,
+			cfg.Probes.DefaultTimeout,
+			cfg.Probes.ICMP.MaxCount,
+			cfg.Probes.ICMP.Interval,
+			cfg.Probes.ICMP.PayloadSize,
+		),
 		DialTimeout: cfg.Probes.DefaultTimeout,
 	}
 

@@ -250,3 +250,107 @@ func TestGuard_CheckHostname(t *testing.T) {
 		}
 	})
 }
+
+// TestGuard_RateWeight_ChargesPerPacket verifies that an ICMP-style
+// Authorize call with RateWeight=N consumes N tokens from the
+// per-target bucket (PLAN §7.4: "count packets => count tokens").
+// A burst of 3 + a RateWeight=4 call must be refused.
+func TestGuard_RateWeight_ChargesPerPacket(t *testing.T) {
+	g := newRateWeightGuard(t, ratelimit.ManagerConfig{
+		Global:        ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		PerTarget:     ratelimit.RateLimit{RPS: 1000, Burst: 3},
+		PerSession:    ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		MaxConcurrent: 8,
+		KeyedTTL:      time.Minute,
+		KeyedMaxKeys:  16,
+		MaxCalls:      1000,
+	})
+
+	ctx := context.Background()
+	weight := 4
+
+	// First call: rate-weight=4 with per-target burst=3 must be
+	// refused up front, before any network I/O. We use a target
+	// that matches the allow-list (the 127.0.0.0/8 rule), and
+	// pass it as an IP literal to skip DNS.
+	_, err := g.Authorize(ctx, Request{
+		Tool:       "icmp_probe",
+		Scheme:     "icmp",
+		Host:       "127.0.0.1",
+		Purpose:    PurposeICMPProbe,
+		RateWeight: weight,
+	})
+	if err == nil {
+		t.Fatalf("expected rate-limit denial for weight=%d with burst=3", weight)
+	}
+	if !strings.Contains(err.Error(), "rate limit") {
+		t.Fatalf("expected rate-limit error, got %v", err)
+	}
+}
+
+// TestGuard_RateWeight_ZeroIsOne verifies that a zero or negative
+// RateWeight is treated as 1 (no behavioural change versus the
+// pre-RateWeight API).
+func TestGuard_RateWeight_ZeroIsOne(t *testing.T) {
+	g := newRateWeightGuard(t, ratelimit.ManagerConfig{
+		Global:        ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		PerTarget:     ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		PerSession:    ratelimit.RateLimit{RPS: 1000, Burst: 1000},
+		MaxConcurrent: 8,
+		KeyedTTL:      time.Minute,
+		KeyedMaxKeys:  16,
+		MaxCalls:      1000,
+	})
+	ctx := context.Background()
+	for _, w := range []int{0, -1, -100} {
+		tgt, err := g.Authorize(ctx, Request{
+			Tool:       "icmp_probe",
+			Scheme:     "icmp",
+			Host:       "127.0.0.1",
+			Purpose:    PurposeICMPProbe,
+			RateWeight: w,
+		})
+		if err != nil {
+			t.Fatalf("RateWeight=%d: unexpected denial %v", w, err)
+		}
+		tgt.Release()
+	}
+}
+
+// newRateWeightGuard builds a Guard with the default bogon list
+// disabled so 127.0.0.1 is reachable. Used by RateWeight tests
+// only — keeping it separate from newTestGuard ensures the SSRF
+// table-driven tests still see the realistic deny-by-default
+// behaviour.
+func newRateWeightGuard(t *testing.T, rl ratelimit.ManagerConfig) *Guard {
+	t.Helper()
+	cfg := &config.SecurityConfig{
+		Targets: config.TargetPolicy{
+			Allow: []config.TargetRule{
+				{Type: "cidr", Pattern: "127.0.0.0/8", Tools: []string{"icmp_probe"}},
+			},
+		},
+		Network: config.NetworkPolicy{
+			AllowIPv4:            ptrBool(true),
+			AllowIPv6:            ptrBool(false),
+			DisableDefaultBogons: true,
+			BlockLoopback:        ptrBool(false),
+		},
+		DNS: config.DNSPolicy{},
+	}
+	filter, err := NewIPFilter(&cfg.Network)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewSafeResolver(cfg.DNS, filter)
+	dialer, err := NewSafeDialer(cfg.Network, filter, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := ratelimit.NewManager(rl)
+	g, err := NewGuard(cfg, resolver, dialer, filter, mgr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return g
+}

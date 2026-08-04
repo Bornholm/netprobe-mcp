@@ -65,6 +65,28 @@ func NewManager(cfg ManagerConfig) *Manager {
 // function must be called even if the probe itself fails, so that resources
 // (in particular the concurrency semaphore) are returned.
 func (m *Manager) Acquire(ctx context.Context, key errs.RateKey) (release func(), err error) {
+	return m.acquire(ctx, key, 1)
+}
+
+// AcquireN is like Acquire but consumes `weight` tokens from the
+// per-target bucket instead of one. Other limiters (session quota,
+// per-tool, global, per-session, concurrency semaphore) still
+// consume one token per call, regardless of weight. This matches
+// PLAN §7.4: "Consommer N jetons pour N paquets, pas 1 jeton pour
+// 1 appel d'outil."
+//
+// A weight of 0 or below is treated as 1. When the per-target
+// bucket cannot satisfy the requested weight even after waiting,
+// AcquireN refuses immediately with a RetryAfter hint — same
+// non-blocking posture as Acquire.
+func (m *Manager) AcquireN(ctx context.Context, key errs.RateKey, weight int) (release func(), err error) {
+	if weight < 1 {
+		weight = 1
+	}
+	return m.acquire(ctx, key, weight)
+}
+
+func (m *Manager) acquire(ctx context.Context, key errs.RateKey, perTargetWeight int) (release func(), err error) {
 	releases := make([]func(), 0, 5)
 	rollback := func() {
 		for i := len(releases) - 1; i >= 0; i-- {
@@ -100,12 +122,21 @@ func (m *Manager) Acquire(ctx context.Context, key errs.RateKey) (release func()
 	}
 	releases = append(releases, func() {})
 
-	// 4. Per-target bucket.
-	if rel, err := m.perTarget.Acquire(ctx, key.Target); err != nil {
-		rollback()
-		return nil, err
-	} else if rel != nil {
-		releases = append(releases, rel)
+	// 4. Per-target bucket. Consumes perTargetWeight tokens so
+	// that ICMP `count` packets cost `count` tokens (PLAN §7.4).
+	if perTargetWeight > 1 {
+		if err := m.allowN(m.perTarget, key.Target, perTargetWeight); err != nil {
+			rollback()
+			return nil, err
+		}
+		releases = append(releases, func() {})
+	} else {
+		if rel, err := m.perTarget.Acquire(ctx, key.Target); err != nil {
+			rollback()
+			return nil, err
+		} else if rel != nil {
+			releases = append(releases, rel)
+		}
 	}
 
 	// 5. Per-session bucket.
@@ -154,6 +185,25 @@ func (m *Manager) allow(lim *rate.Limiter, name string) error {
 			RetryAfter: delay.Round(time.Millisecond),
 		}
 		return de.WithInternal(errors.New("retry-after"))
+	}
+	return nil
+}
+
+// allowN reserves n tokens from a KeyedLimiter. Non-blocking: a
+// refusal carries a RetryAfter hint. Used by the per-target bucket
+// when the call's "weight" is greater than one (PLAN §7.4: ICMP
+// count packets => count tokens).
+func (m *Manager) allowN(kl *KeyedLimiter, key string, n int) error {
+	if err := kl.AllowN(key, n); err != nil {
+		// Surface under the same "per_target" category label
+		// that the per-target Acquire path uses, so callers
+		// and dashboards see a single category.
+		var de *errs.DenyError
+		if errors.As(err, &de) {
+			de.Reason = "per_target rate limit exceeded"
+			return de
+		}
+		return err
 	}
 	return nil
 }

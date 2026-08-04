@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefault_Validates(t *testing.T) {
@@ -325,5 +326,68 @@ func TestValidate_HTTPTransport_HeaderDefaulted(t *testing.T) {
 	}
 	if got := c.Server.HTTPConfig.Auth.TokenBearer.HeaderName; got != "Authorization" {
 		t.Errorf("HeaderName = %q, want default Authorization", got)
+	}
+}
+
+// --- ICMP probe validation ---
+
+func TestDefault_ICMPKnobsPopulated(t *testing.T) {
+	c := Default()
+	if !c.Probes.ICMP.Enabled {
+		t.Errorf("ICMP should be enabled by default")
+	}
+	if c.Probes.ICMP.MaxCount <= 0 {
+		t.Errorf("MaxCount should be set by default, got %d", c.Probes.ICMP.MaxCount)
+	}
+	if c.Probes.ICMP.Interval <= 0 {
+		t.Errorf("Interval should be set by default, got %s", c.Probes.ICMP.Interval)
+	}
+	if c.Probes.ICMP.PayloadSize < 0 {
+		t.Errorf("PayloadSize should be >= 0 by default, got %d", c.Probes.ICMP.PayloadSize)
+	}
+}
+
+func TestValidate_ICMP_FillsMissingDefaults(t *testing.T) {
+	c := Default()
+	// Wipe the ICMP knobs to simulate a minimal config that does
+	// not mention the section.
+	c.Probes.ICMP = ICMPProbeConfig{}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if c.Probes.ICMP.MaxCount != 3 {
+		t.Errorf("MaxCount default = %d, want 3", c.Probes.ICMP.MaxCount)
+	}
+	if c.Probes.ICMP.Interval != 1*time.Second {
+		t.Errorf("Interval default = %s, want 1s", c.Probes.ICMP.Interval)
+	}
+	if c.Probes.ICMP.PayloadSize != 0 {
+		t.Errorf("PayloadSize default = %d, want 0", c.Probes.ICMP.PayloadSize)
+	}
+}
+
+func TestValidate_ICMP_RejectsOverCeilings(t *testing.T) {
+	c := Default()
+	c.Probes.ICMP.MaxCount = 11
+	if err := c.Validate(); err == nil {
+		t.Errorf("expected error when MaxCount > 10")
+	}
+}
+
+func TestValidate_ICMP_RejectsUnderFloor(t *testing.T) {
+	c := Default()
+	c.Probes.ICMP.Interval = 100 * time.Millisecond
+	if err := c.Validate(); err == nil {
+		t.Errorf("expected error when Interval < 200ms")
+	}
+}
+
+func TestValidate_ICMP_RejectsPayloadOutOfRange(t *testing.T) {
+	for _, sz := range []int{-1, 1401} {
+		c := Default()
+		c.Probes.ICMP.PayloadSize = sz
+		if err := c.Validate(); err == nil {
+			t.Errorf("expected error when PayloadSize = %d", sz)
+		}
 	}
 }

@@ -79,12 +79,13 @@ func (s *Server) handleICMPProbe(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	target, err := s.guard.Authorize(ctx, security.Request{
-		Tool:      "icmp_probe",
-		SessionID: sessionID,
-		Scheme:    "icmp",
-		Host:      in.Host,
-		Port:      0,
-		Purpose:   security.PurposeICMPProbe,
+		Tool:       "icmp_probe",
+		SessionID:  sessionID,
+		Scheme:     "icmp",
+		Host:       in.Host,
+		Port:       0,
+		Purpose:    security.PurposeICMPProbe,
+		RateWeight: in.Count, // PLAN §7.4: count packets => count per-target tokens
 	})
 	if err != nil {
 		ev := &audit.Event{
