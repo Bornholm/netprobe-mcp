@@ -19,7 +19,14 @@ import (
 
 func newTestServer(t *testing.T) (*Server, *net.TCPListener) {
 	t.Helper()
-	_ = net.IPv4
+	// One listener that BOTH the MCP server (via the
+	// SafeDialer → PinnedDialContext → net.Dialer) and the
+	// accept-goroutine below use. Two listeners would race:
+	// the returned `tcpLn` would point at one, the accept loop
+	// at the other, and the test would dial a port with no
+	// accept loop (connection refused). This regression was
+	// caught by CI on the workflow that introduced the
+	// package: do not reintroduce the second `ln` shadowing.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -91,13 +98,7 @@ func newTestServer(t *testing.T) (*Server, *net.TCPListener) {
 
 	mreg := metrics.New()
 
-	// Local listener to receive the TCP probe.
-	ln, lErr := net.Listen("tcp", "127.0.0.1:0")
-	if lErr != nil {
-		t.Fatal(lErr)
-	}
-	t.Cleanup(func() { ln.Close() })
-
+	// The accept loop runs against the same `ln` we return.
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -111,8 +112,6 @@ func newTestServer(t *testing.T) (*Server, *net.TCPListener) {
 			}(c)
 		}
 	}()
-
-	_ = tcpLn // referenced for clarity
 
 	srv := New(&mcp.Implementation{Name: cfg.Server.Name, Version: cfg.Server.Version}, Deps{
 		Guard:   guard,
