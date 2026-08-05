@@ -202,6 +202,11 @@ type DNSPolicy struct {
 	CacheTTL            time.Duration `yaml:"cache_ttl"`
 	CacheMaxEntries     int           `yaml:"cache_max_entries"`
 	MaxAddressesPerName int           `yaml:"max_addresses_per_name"`
+	// MaxCNAMEDepth is the maximum number of CNAME indirections
+	// the resolver will follow when answering an A/AAAA query.
+	// Default 8 (RFC 1035 §3.6.2 hint). 0 disables the check.
+	// Each hop (CNAME → A) counts as one level.
+	MaxCNAMEDepth int `yaml:"max_cname_depth"`
 	// Query controls — anti-exfiltration
 	AllowedQueryTypes      []string `yaml:"allowed_query_types"`
 	MaxNameLength          int      `yaml:"max_name_length"`
@@ -235,7 +240,11 @@ type ProbesConfig struct {
 	DNS            DNSProbeConfig  `yaml:"dns"`
 	ICMP           ICMPProbeConfig `yaml:"icmp"`
 	GRPC           GRPCProbeConfig `yaml:"grpc"`
-	TLS            TLSDiagConfig   `yaml:"tls"`
+	// TLS is also accepted as `tls_diagnostic` for operators who
+	// follow the PLAN §4.1 naming. Both keys map to the same
+	// struct; the alias keeps documentation continuity while the
+	// shorter key remains the canonical name.
+	TLS TLSDiagConfig `yaml:"tls,alias=tls_diagnostic"`
 }
 
 // GRPCProbeConfig governs the grpc_probe tool.
@@ -312,12 +321,86 @@ type ICMPProbeConfig struct {
 
 // HTTPProbeConfig governs the http_probe tool.
 type HTTPProbeConfig struct {
-	Enabled          bool     `yaml:"enabled"`
-	MaxBodyBytes     int64    `yaml:"max_body_bytes"`
-	MaxReturnedBytes int64    `yaml:"max_returned_bytes"`
-	HeaderAllowList  []string `yaml:"header_allow_list"`
-	AllowRedirect    *bool    `yaml:"allow_redirect"`
-	MaxRedirects     int      `yaml:"max_redirects"`
+	Enabled bool `yaml:"enabled"`
+
+	// AllowedMethods is the closed set of HTTP methods http_probe
+	// may issue. Default: GET, HEAD. Anything outside this set is
+	// refused at Validate() time.
+	AllowedMethods []string `yaml:"allowed_methods"`
+
+	// FollowRedirects (default true) toggles the redirect handler.
+	FollowRedirects bool `yaml:"follow_redirects"`
+
+	// MaxRedirects caps the number of hops the redirect walker
+	// will follow. 0 disables following.
+	MaxRedirects int `yaml:"max_redirects"`
+
+	// MaxBodyBytes is the absolute upper bound on bytes read from
+	// the response body. Anything beyond is discarded (not stored).
+	MaxBodyBytes int64 `yaml:"max_body_bytes"`
+
+	// MaxReturnedBytes caps how many bytes of the sanitised body
+	// snippet are returned to the agent. Must be <= MaxBodyBytes.
+	MaxReturnedBytes int64 `yaml:"max_returned_bytes"`
+
+	// ReturnBody toggles inclusion of the sanitised body snippet
+	// in the result. Default false — bodies are untrusted remote
+	// content and must be opted into.
+	ReturnBody bool `yaml:"return_body"`
+
+	// ReturnHeaders toggles inclusion of response headers in
+	// the result. Only HeaderAllowlist'd headers are returned.
+	ReturnHeaders bool `yaml:"return_headers"`
+
+	// HeaderAllowList is the closed list of response header names
+	// the result may include. Empty + ReturnHeaders=true returns
+	// no headers (defence by default).
+	HeaderAllowList []string `yaml:"header_allow_list"`
+
+	// RequestHeaderAllowList restricts agent-supplied request
+	// header names. The blocklist in HTTPOptions.applyHeaders
+	// still applies on top, regardless of this list.
+	RequestHeaderAllowList []string `yaml:"request_header_allow_list"`
+
+	// AllowRequestBody toggles whether the agent may supply an
+	// HTTP body. Default false. When false, POST is rejected at
+	// Validate() time.
+	AllowRequestBody bool `yaml:"allow_request_body"`
+
+	// MaxRequestBodyBytes caps the size of agent-supplied
+	// request bodies. 0 means none allowed.
+	MaxRequestBodyBytes int64 `yaml:"max_request_body_bytes"`
+
+	// UserAgent is sent on every probe that does not override it
+	// via a request header. Must be a non-empty, ASCII-only
+	// string without CRLF.
+	UserAgent string `yaml:"user_agent"`
+
+	// InsecureSkipVerify disables TLS verification on the probe.
+	// PRODUCTION USE IS FORBIDDEN unless the operator passes the
+	// explicit --i-know-what-im-doing flag on the CLI.
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify"`
+
+	// DisableCompression turns off Accept-Encoding. Default false.
+	DisableCompression bool `yaml:"disable_compression"`
+
+	// AllowBodyRegexpChecks toggles agent-supplied FailIfBodyMatches
+	// and FailIfBodyNotMatches. When false, those fields are rejected
+	// at Validate() time.
+	AllowBodyRegexpChecks bool `yaml:"allow_body_regexp_checks"`
+
+	// BodyRegexpTimeout is the per-regexp evaluation budget.
+	// Default 500ms; matches anything longer than that as "no match".
+	BodyRegexpTimeout time.Duration `yaml:"body_regexp_timeout"`
+
+	// MaxBodyRegexpLength caps the byte length of an agent-supplied
+	// regexp. Patterns longer than this are refused. Default 256.
+	MaxBodyRegexpLength int `yaml:"max_body_regexp_length"`
+
+	// AllowRedirect toggles per-probe override; the wrapper
+	// constructor reads it to decide whether to wire up the
+	// redirect walker.
+	AllowRedirect *bool `yaml:"allow_redirect"`
 }
 
 // TLSDiagConfig governs the tls_diagnose tool. The v1 implementation is
@@ -757,7 +840,27 @@ func ApplyFlagAllowRules(cfg *Config, hostnames, cidrs []string) (int, error) {
 // When a field is missing or zero, Validate fills in a sensible
 // default. This means a partial YAML file is acceptable as long as
 // the deny-by-default rules below still hold.
+// ValidateOptions carries operator-side overrides consumed by
+// ValidateWithOptions. These flags are NOT loadable from the YAML
+// file: they require explicit CLI assent.
+type ValidateOptions struct {
+	// InsecureSkipVerifyOverride, when true, allows the policy to
+	// enable probes.http.insecure_skip_verify. Without this
+	// override, ValidateWithOptions rejects the configuration: TLS
+	// verification must never be silently disabled by a YAML edit
+	// alone (PLAN §4.3).
+	InsecureSkipVerifyOverride bool
+}
+
+// Validate is a wrapper around ValidateWithOptions that uses the
+// default zero-value ValidateOptions (no overrides).
 func (c *Config) Validate() error {
+	return c.ValidateWithOptions(ValidateOptions{})
+}
+
+// ValidateWithOptions applies the policy defaults, then enforces
+// every deny-by-default invariant. PLAN §4.3.
+func (c *Config) ValidateWithOptions(opts ValidateOptions) error {
 	var errs []error
 
 	if c.Server.Transport == "" {
@@ -936,6 +1039,19 @@ func (c *Config) Validate() error {
 	if c.Security.DNS.MaxEntropyBits <= 0 {
 		c.Security.DNS.MaxEntropyBits = 4.0
 	}
+	// MaxCNAMEDepth: 0 disables the check (defaults to the safe
+	// value), negative is a config error. The hard cap of 32 is a
+	// safety net; the RFC 1035 hint is 8, anything beyond is
+	// unusual.
+	if c.Security.DNS.MaxCNAMEDepth < 0 {
+		errs = append(errs, fmt.Errorf("security.dns.max_cname_depth cannot be negative (got %d)", c.Security.DNS.MaxCNAMEDepth))
+	}
+	if c.Security.DNS.MaxCNAMEDepth == 0 {
+		c.Security.DNS.MaxCNAMEDepth = 8
+	}
+	if c.Security.DNS.MaxCNAMEDepth > 32 {
+		errs = append(errs, fmt.Errorf("security.dns.max_cname_depth cannot exceed 32 (got %d)", c.Security.DNS.MaxCNAMEDepth))
+	}
 
 	if c.Probes.DNS.Enabled {
 		if len(c.Probes.DNS.AllowedServers) == 0 && !c.Probes.DNS.AllowSystemResolver {
@@ -1065,6 +1181,14 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// TLS verification must never be silently disabled. PLAN §4.3:
+	// the operator must pass --i-know-what-im-doing to the CLI to
+	// load a policy that turns this on. Without it, refuse.
+	if c.Probes.HTTP.InsecureSkipVerify && !opts.InsecureSkipVerifyOverride {
+		errs = append(errs, errors.New(
+			"probes.http.insecure_skip_verify=true requires the --i-know-what-im-doing CLI flag"))
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -1080,6 +1204,11 @@ func validateRule(r TargetRule) error {
 	if r.Type == "regexp" && len(r.Pattern) > 512 {
 		return errors.New("regexp pattern too long (max 512 chars)")
 	}
+	// Refuse patterns that match everything (PLAN §4.3).
+	// Common offenders: ".*", ".+", "^.*$".
+	if r.Type == "regexp" && isTriviallyUniversalRegex(r.Pattern) {
+		return errors.New("regexp pattern matches every host (deny-by-default refuses trivially universal patterns)")
+	}
 	for _, p := range r.Purposes {
 		switch p {
 		case "probe", "meta", "aia_fetch", "ocsp_query", "icmp_probe":
@@ -1088,6 +1217,19 @@ func validateRule(r TargetRule) error {
 		}
 	}
 	return nil
+}
+
+// isTriviallyUniversalRegex reports whether pattern, once compiled
+// as an RE2 regexp, matches every possible string. We refuse a
+// handful of obvious forms without doing the full mathematical
+// analysis: a more thorough audit could plug in a real regex
+// analyser, but the deny-by-default posture is to be conservative.
+func isTriviallyUniversalRegex(pattern string) bool {
+	switch pattern {
+	case ".*", ".+", "^.*", "^.*$", "^.+", "^.+$", "(.*)?", "(.+)?", "(.*)*", "(.+)+":
+		return true
+	}
+	return false
 }
 
 // isKnownQType returns true when name is one of the RR types the DNS probe

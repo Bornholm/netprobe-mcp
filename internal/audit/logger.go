@@ -70,6 +70,12 @@ type Config struct {
 	// tests that need to capture the audit stream into an in-memory buffer.
 	Writer     io.Writer
 	LogTargets bool
+	// OnDropped, if non-nil, is invoked synchronously from the
+	// Emit goroutine every time an event is discarded because the
+	// channel buffer is full. Used to surface the count in
+	// /metrics (probe_mcp_audit_dropped_total). Callers must keep
+	// the callback cheap and non-blocking.
+	OnDropped func(n uint64)
 }
 
 type Logger struct {
@@ -80,6 +86,7 @@ type Logger struct {
 	stopped    chan struct{}
 	wg         sync.WaitGroup
 	logTargets bool
+	onDropped  func(n uint64)
 }
 
 func New(cfg Config) (*Logger, error) {
@@ -134,6 +141,7 @@ func New(cfg Config) (*Logger, error) {
 		ch:         make(chan *Event, 256),
 		stopped:    make(chan struct{}),
 		logTargets: cfg.LogTargets,
+		onDropped:  cfg.OnDropped,
 	}
 	l.wg.Add(1)
 	go l.run()
@@ -155,6 +163,9 @@ func (l *Logger) Emit(ev *Event) {
 	case l.ch <- ev:
 	default:
 		l.dropped.Add(1)
+		if l.onDropped != nil {
+			l.onDropped(1)
+		}
 	}
 }
 
@@ -172,17 +183,22 @@ func (l *Logger) writeSync(ev *Event) {
 		slog.String("outcome", ev.Outcome),
 		slog.Float64("duration_ms", ev.DurationMs),
 	}
+	// PLAN §11.1: scrub internal IPs and truncate long fields even
+	// when LogTargets is on. The flag controls whether targets are
+	// included at all, but the content must always be sanitised.
+	// This prevents an attacker from using a denied request as a
+	// way to log internal network topology.
 	if l.logTargets {
 		attrs = append(attrs,
-			slog.String("requested_target", ev.RequestedTarget),
-			slog.String("resolved_addr", ev.ResolvedAddr),
+			slog.String("requested_target", sanitizeTarget(ev.RequestedTarget)),
+			slog.String("resolved_addr", sanitizeTarget(ev.ResolvedAddr)),
 			slog.Int("resolved_port", int(ev.ResolvedPort)),
 		)
 	}
 	if len(ev.OutboundURLs) > 0 {
 		urls := make([]string, 0, len(ev.OutboundURLs))
 		for _, u := range ev.OutboundURLs {
-			entry := u.URL
+			entry := scrubOutboundURL(u.URL)
 			if u.Purpose != "" {
 				entry = "[" + u.Purpose + "] " + entry
 			}

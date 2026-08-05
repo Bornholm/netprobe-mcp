@@ -33,6 +33,12 @@ var (
 	showVersion   = flag.Bool("version", false, "print version and exit")
 	allowHostname stringList
 	allowCIDR     stringList
+	// iKnowWhatImDoing is the explicit operator override required by
+	// PLAN §4.3 to enable probes.http.insecure_skip_verify. Without
+	// it, Validate() refuses to start the server: TLS verification
+	// must never be silently disabled by a YAML edit.
+	iKnowWhatImDoing = flag.Bool("i-know-what-im-doing", false,
+		"required to enable probes.http.insecure_skip_verify; production servers must NOT use this")
 )
 
 func init() {
@@ -152,7 +158,9 @@ func printUsage(w *os.File) {
 }
 
 func run() error {
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadWithOptions(*configPath, config.LoadOptions{
+		InsecureSkipVerifyOverride: *iKnowWhatImDoing,
+	})
 	if err != nil {
 		return err
 	}
@@ -171,18 +179,19 @@ func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	mreg := metrics.New()
+
 	auditLogger, err := audit.New(audit.Config{
 		Format:     cfg.Audit.Format,
 		Output:     cfg.Audit.Output,
 		Level:      cfg.Audit.Level,
 		LogTargets: cfg.Audit.LogTargets,
+		OnDropped:  mreg.AddAuditDropped,
 	})
 	if err != nil {
 		return err
 	}
 	defer auditLogger.Close()
-
-	mreg := metrics.New()
 
 	filter, err := security.NewIPFilter(&cfg.Security.Network)
 	if err != nil {

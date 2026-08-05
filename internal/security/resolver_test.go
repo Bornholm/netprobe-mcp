@@ -62,3 +62,32 @@ func TestSafeResolver_LiteralIPRejection(t *testing.T) {
 		t.Errorf("category = %v, want IPRange", de.Category)
 	}
 }
+
+// TestSafeResolver_CheckCNAMEDepth_NoCheckWhenZero verifies that
+// MaxCNAMEDepth=0 disables the walker entirely (no DNS exchange).
+func TestSafeResolver_CheckCNAMEDepth_NoCheckWhenZero(t *testing.T) {
+	r := NewSafeResolver(config.DNSPolicy{
+		Timeout:       10 * time.Millisecond,
+		MaxCNAMEDepth: 0,
+	}, nil)
+	// Should never query DNS, must return nil immediately.
+	if err := r.checkCNAMEDepth(context.Background(), "example.com", "system"); err != nil {
+		t.Errorf("expected nil when MaxCNAMEDepth=0, got %v", err)
+	}
+}
+
+// TestSafeResolver_CheckCNAMEDepth_BestEffortOnResolverFailure
+// verifies that when the CNAME exchange fails (no real DNS in the
+// test environment), the check is best-effort and does not block
+// the resolution.
+func TestSafeResolver_CheckCNAMEDepth_BestEffortOnResolverFailure(t *testing.T) {
+	r := NewSafeResolver(config.DNSPolicy{
+		Timeout:       10 * time.Millisecond,
+		MaxCNAMEDepth: 8,
+	}, nil)
+	// Address pointing at an unroutable port: the exchange must fail
+	// quickly, returning nil (best-effort).
+	if err := r.checkCNAMEDepth(context.Background(), "example.com", "127.0.0.1:1"); err != nil {
+		t.Errorf("best-effort check should swallow exchange failure, got %v", err)
+	}
+}

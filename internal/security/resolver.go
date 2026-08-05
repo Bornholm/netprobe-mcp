@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bornholm/netprobe-mcp/internal/config"
+	"github.com/miekg/dns"
 )
 
 // ResolveResult is what SafeResolver hands back: filtered, validated addresses
@@ -161,8 +162,88 @@ func (r *SafeResolver) LookupIPAddr(ctx context.Context, host string) (*ResolveR
 		}
 	}
 
+	// CNAME depth check. PLAN §4.1: refuse chains deeper than
+	// MaxCNAMEDepth (default 8, RFC 1035). Checked AFTER the IP
+	// filter so a CNAME that points to a forbidden IP is rejected
+	// at the IP stage rather than here.
+	if err := r.checkCNAMEDepth(ctx, host, resolverName); err != nil {
+		return nil, err
+	}
+
 	r.cache.Put(host, out)
 	return out, nil
+}
+
+// checkCNAMEDepth enforces r.cfg.MaxCNAMEDepth by issuing a CNAME
+// query for host and walking the chain. When MaxCNAMEDepth is 0 the
+// check is skipped.
+//
+// The walker is best-effort: if the CNAME query fails (timeout,
+// SERVFAIL, etc.) the function returns nil and lets the A/AAAA
+// result through. The CNAME check is a defence-in-depth against
+// pathological chains, not a primary correctness check.
+func (r *SafeResolver) checkCNAMEDepth(ctx context.Context, host, resolverName string) error {
+	max := r.cfg.MaxCNAMEDepth
+	if max <= 0 {
+		return nil
+	}
+	resolver := resolverForName(resolverName)
+	if resolver == "" {
+		resolver = "system"
+	}
+	c := &dns.Client{Net: "udp", Timeout: r.cfg.Timeout}
+	visited := map[string]struct{}{}
+	current := dns.Fqdn(host)
+	for depth := 0; depth <= max; depth++ {
+		if _, ok := visited[current]; ok {
+			// Cycle — refuse to avoid infinite loop. A proper DNS
+			// resolver already prevents cycles, but the defensive
+			// check costs nothing.
+			return &DenyError{
+				Category: DenyDNSFailure,
+				Reason:   "DNS CNAME chain contains a cycle",
+			}
+		}
+		visited[current] = struct{}{}
+		msg := new(dns.Msg)
+		msg.SetQuestion(current, dns.TypeCNAME)
+		resp, _, err := c.ExchangeContext(ctx, msg, resolver)
+		if err != nil || resp == nil {
+			return nil
+		}
+		cname, ok := nextCNAME(resp)
+		if !ok {
+			return nil
+		}
+		if depth == max {
+			return &DenyError{
+				Category: DenyDNSFailure,
+				Reason:   fmt.Sprintf("DNS CNAME chain for %q exceeds the configured depth of %d", host, max),
+			}
+		}
+		current = cname
+	}
+	return nil
+}
+
+// nextCNAME returns the first CNAME target in msg, or "" if the
+// response has no CNAME record. Used by the depth walker.
+func nextCNAME(msg *dns.Msg) (string, bool) {
+	for _, rr := range msg.Answer {
+		if c, ok := rr.(*dns.CNAME); ok {
+			return c.Target, true
+		}
+	}
+	return "", false
+}
+
+// resolverForName picks a usable resolver address from the
+// configured list, falling back to the system resolver.
+func resolverForName(name string) string {
+	if strings.HasPrefix(name, ":") || strings.HasPrefix(name, "127.") || strings.HasPrefix(name, "localhost") {
+		return ""
+	}
+	return name
 }
 
 func (r *SafeResolver) lookupWithFallback(ctx context.Context, host string) ([]netip.Addr, string, error) {
