@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -757,5 +758,64 @@ func TestClassifyHTTPError(t *testing.T) {
 		if got := classifyHTTPError(tc.err); got != tc.want {
 			t.Errorf("classifyHTTPError(%v) = %q, want %q", tc.err, got, tc.want)
 		}
+	}
+}
+
+// TestHTTPProber_RedirectDowngradeBlocked verifies that an HTTPS
+// target that redirects to a plain HTTP URL is reported as a blocked
+// redirect — NOT silently followed. This is the PLAN §5.6 hardening:
+// a downgrade could leak request-bound state over an unencrypted
+// channel.
+func TestHTTPProber_RedirectDowngradeBlocked(t *testing.T) {
+	if runtime.GOOS == "js" {
+		t.Skip("skipping on js")
+	}
+
+	// HTTPS server answers with a redirect to a plain HTTP URL on
+	// the same loopback endpoint.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, port, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			t.Errorf("split host/port: %v", err)
+			w.WriteHeader(500)
+			return
+		}
+		loc := fmt.Sprintf("http://%s/", net.JoinHostPort(host, port))
+		http.Redirect(w, r, loc, http.StatusFound)
+	}))
+	defer srv.Close()
+
+	pool := x509.NewCertPool()
+	pool.AddCert(srv.Certificate())
+
+	env := newHTTPTestEnv(t, nil)
+	env.prober.cfg.RootCAs = pool
+	env.prober.cfg.MaxRedirects = 5
+
+	target := authorizeForURL(t, env, srv.URL)
+	defer target.Release()
+
+	res, err := env.prober.Run(context.Background(), target, env.dialer,
+		HTTPOptions{URL: srv.URL}, true, env.guard)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected failure due to downgrade: %+v", res)
+	}
+	if res.HTTP == nil || res.HTTP.RedirectBlocked == nil {
+		t.Fatalf("expected RedirectBlocked to be populated: %+v", res)
+	}
+	if res.HTTP.RedirectBlocked.Category != "downgrade" {
+		t.Errorf("Category = %q, want downgrade", res.HTTP.RedirectBlocked.Category)
+	}
+	if !strings.Contains(res.HTTP.RedirectBlocked.Reason, "downgrade") {
+		t.Errorf("Reason = %q, expected to mention downgrade", res.HTTP.RedirectBlocked.Reason)
+	}
+	if !strings.HasPrefix(res.HTTP.RedirectBlocked.Target, "http://") {
+		t.Errorf("Target = %q, expected http://", res.HTTP.RedirectBlocked.Target)
+	}
+	if res.ErrorClass != "policy" {
+		t.Errorf("ErrorClass = %q, want policy", res.ErrorClass)
 	}
 }

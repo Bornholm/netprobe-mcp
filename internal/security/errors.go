@@ -25,6 +25,7 @@ const (
 	DenyPort        = errs.Port
 	DenyScheme      = errs.Scheme
 	DenyMethod      = errs.Method
+	DenyPath        = errs.Path
 	DenyToolTarget  = errs.ToolTarget
 	DenyRateLimit   = errs.RateLimit
 	DenyQuota       = errs.Quota

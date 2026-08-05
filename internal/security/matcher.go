@@ -33,7 +33,13 @@ type compiledRule struct {
 	// purposes restricts the rule to a closed set of purpose
 	// strings. Empty means "any purpose".
 	purposes map[string]struct{}
-	comment  string
+	// methods restricts the rule to a closed set of HTTP methods
+	// (uppercase). Empty means "any method".
+	methods map[string]struct{}
+	// paths restricts the rule to a closed set of HTTP path
+	// globs (already compiled). Empty means "any path".
+	paths   []pathMatcher
+	comment string
 }
 
 type portRange struct {
@@ -66,6 +72,34 @@ func (r *compiledRule) toolAllowed(t string) bool {
 	}
 	_, ok := r.tools[t]
 	return ok
+}
+
+// methodAllowed reports whether the given HTTP method (already
+// normalized to upper-case by the caller) is permitted by the rule.
+// An empty rule set means "any method"; the HTTP probe's own
+// hard-coded allow-list still applies on top.
+func (r *compiledRule) methodAllowed(m string) bool {
+	if len(r.methods) == 0 {
+		return true
+	}
+	_, ok := r.methods[m]
+	return ok
+}
+
+// pathsAllowed reports whether the given HTTP path is permitted by
+// the rule. An empty rule set means "any path". Path globs are
+// matched with the same syntax as the rule's host globs: '*' matches
+// any run of characters within a label, '**' crosses dots.
+func (r *compiledRule) pathsAllowed(p string) bool {
+	if len(r.paths) == 0 {
+		return true
+	}
+	for _, pm := range r.paths {
+		if pm.Match(p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *compiledRule) purposeAllowed(p Purpose) bool {
@@ -145,6 +179,87 @@ func matchGlobSegment(seg, host string, anchored bool) bool {
 	return re.MatchString(host)
 }
 
+// pathMatcher is the compiled form of a single HTTP path glob from a
+// TargetRule. It re-uses the same syntax as the host glob matcher:
+// '*' matches a run of characters inside a segment (separator is '/'
+// for paths), '**' crosses segments. Path matching is
+// case-sensitive (HTTP paths are case-sensitive by spec, unlike DNS
+// labels).
+type pathMatcher struct {
+	raw    string
+	prefix string // segment preceding the first '**'
+	suffix string // segment following the last '**'
+	only   string // entire pattern when there is no '**'
+}
+
+func compilePathPattern(p string) (pathMatcher, error) {
+	if p == "" {
+		return pathMatcher{}, errInvalid("path glob is empty")
+	}
+	if !strings.HasPrefix(p, "/") {
+		return pathMatcher{}, errInvalid("path glob must start with '/'")
+	}
+	parts := strings.Split(p, "**")
+	if len(parts) > 2 {
+		return pathMatcher{}, errInvalid("path glob may contain at most one '**'")
+	}
+	if len(parts) == 1 {
+		return pathMatcher{raw: p, only: p}, nil
+	}
+	return pathMatcher{
+		raw:    p,
+		prefix: parts[0],
+		suffix: parts[1],
+	}, nil
+}
+
+func (pm pathMatcher) Match(p string) bool {
+	if pm.only != "" {
+		return matchPathSegment(pm.only, p, false)
+	}
+	if pm.prefix != "" && !strings.HasPrefix(p, strings.TrimRight(pm.prefix, "*")) {
+		return false
+	}
+	if pm.suffix != "" && !strings.HasSuffix(p, strings.TrimLeft(pm.suffix, "*")) {
+		return false
+	}
+	return true
+}
+
+// matchPathSegment is the path-flavored counterpart of
+// matchGlobSegment: '*' matches any run of characters within a single
+// segment (separator is '/'), so '/v1/*' matches '/v1/status' but
+// not '/v1/users/42'.
+func matchPathSegment(seg, path string, anchored bool) bool {
+	if seg == "" {
+		return true
+	}
+	var b strings.Builder
+	b.WriteString("^")
+	star := false
+	for _, r := range seg {
+		switch r {
+		case '*':
+			star = true
+		default:
+			if star {
+				b.WriteString("[^/]*")
+				star = false
+			}
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	if star {
+		b.WriteString("[^/]*")
+	}
+	b.WriteString("$")
+	re, err := regexp.Compile(b.String())
+	if err != nil {
+		return false
+	}
+	return re.MatchString(path)
+}
+
 func compileRule(idx int, isAllow bool, rule config.TargetRule) (*compiledRule, error) {
 	r := &compiledRule{
 		id:      makeRuleID(isAllow, idx, rule.Type, rule.Pattern),
@@ -210,6 +325,26 @@ func compileRule(idx int, isAllow bool, rule config.TargetRule) (*compiledRule, 
 		r.tools = make(map[string]struct{}, len(rule.Tools))
 		for _, t := range rule.Tools {
 			r.tools[t] = struct{}{}
+		}
+	}
+	if len(rule.Methods) > 0 {
+		r.methods = make(map[string]struct{}, len(rule.Methods))
+		for _, m := range rule.Methods {
+			up := strings.ToUpper(strings.TrimSpace(m))
+			if up == "" {
+				return nil, errInvalid("methods contains an empty entry")
+			}
+			r.methods[up] = struct{}{}
+		}
+	}
+	if len(rule.Paths) > 0 {
+		r.paths = make([]pathMatcher, 0, len(rule.Paths))
+		for _, p := range rule.Paths {
+			pm, err := compilePathPattern(p)
+			if err != nil {
+				return nil, err
+			}
+			r.paths = append(r.paths, pm)
 		}
 	}
 	if len(rule.Purposes) > 0 {
@@ -285,8 +420,18 @@ func NewTargetMatcher(allowRules, denyRules []config.TargetRule) (*TargetMatcher
 
 // Match returns the first allow rule that matches the request (deny wins).
 // IP is optional: when non-zero, cidr rules are evaluated against it too.
-func (m *TargetMatcher) Match(host string, scheme string, port uint16, ip netip.Addr, tool string, purpose Purpose) MatchResult {
+// method is upper-cased by the caller; path is taken verbatim from
+// the URL (case-sensitive).
+//
+// Only the **essential** constraints (host/CIDR, tool, purpose) are
+// evaluated here. The remaining constraints (port, scheme, method,
+// path) are surfaced on the returned Rule and checked one by one
+// in Guard.Authorize so the refusal carries a precise category
+// (DenyPort, DenyScheme, DenyMethod, DenyPath) instead of the
+// generic "host not in allow-list".
+func (m *TargetMatcher) Match(host string, scheme string, port uint16, ip netip.Addr, tool string, purpose Purpose, method string, path string) MatchResult {
 	host = strings.ToLower(host)
+	method = strings.ToUpper(method)
 
 	if _, ok := m.denyExact[host]; ok {
 		return MatchResult{Allowed: false, DenyReason: "host explicitly denied"}
@@ -304,7 +449,7 @@ func (m *TargetMatcher) Match(host string, scheme string, port uint16, ip netip.
 	}
 
 	for _, r := range m.allowExact[host] {
-		if r.portAllowed(port) && r.schemeAllowed(scheme) && r.toolAllowed(tool) && r.purposeAllowed(purpose) {
+		if r.toolAllowed(tool) && r.purposeAllowed(purpose) {
 			return MatchResult{Allowed: true, Rule: r}
 		}
 	}
@@ -319,7 +464,7 @@ func (m *TargetMatcher) Match(host string, scheme string, port uint16, ip netip.
 		} else if !r.matchesHost(host) {
 			continue
 		}
-		if r.portAllowed(port) && r.schemeAllowed(scheme) && r.toolAllowed(tool) && r.purposeAllowed(purpose) {
+		if r.toolAllowed(tool) && r.purposeAllowed(purpose) {
 			return MatchResult{Allowed: true, Rule: r}
 		}
 	}

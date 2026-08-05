@@ -20,6 +20,7 @@ const (
 	Port        Category = "port_not_allowed"
 	Scheme      Category = "scheme_not_allowed"
 	Method      Category = "method_not_allowed"
+	Path        Category = "path_not_allowed"
 	ToolTarget  Category = "tool_not_allowed_for_target"
 	RateLimit   Category = "rate_limited"
 	Quota       Category = "session_quota_exhausted"

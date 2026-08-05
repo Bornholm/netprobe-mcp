@@ -95,6 +95,18 @@ type TargetRule struct {
 	Ports   []PortRange `yaml:"ports"`
 	Schemes []string    `yaml:"schemes"`
 	Tools   []string    `yaml:"tools"`
+	// Methods restricts the rule to a closed set of HTTP methods.
+	// Only consulted by http_probe (other tools ignore it). Empty
+	// means "any method" — the rule remains open to whatever method
+	// the tool ultimately issues. Method matching is
+	// case-insensitive (GET == get == Get).
+	Methods []string `yaml:"methods"`
+	// Paths restricts the rule to a closed set of HTTP path
+	// globs. Only consulted by http_probe. Each glob supports
+	// '*' (a single label run) and '**' (cross-label runs).
+	// Empty means "any path". Matching is case-sensitive (HTTP
+	// paths are case-sensitive by spec).
+	Paths []string `yaml:"paths"`
 	// Purposes restrict the rule to a closed set of
 	// security.Purpose values. Empty means "any purpose". This is
 	// how secondary SSRF channels (AIA, OCSP direct) are gated:

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,8 +143,9 @@ func (g *Guard) Authorize(ctx context.Context, req Request) (*SafeTarget, error)
 	// Match on the hostname AND the resolved IP (for CIDR rules). This
 	// double-check prevents an attacker who controls DNS for an allowed
 	// hostname from sneaking out via a cidr allow rule that does not
-	// actually contain the hostname.
-	mr := g.matcher.Match(host, req.Scheme, req.Port, primary, req.Tool, req.Purpose)
+	// actually contain the hostname. Method and path filters apply to
+	// http_probe; other tools pass empty values that match anything.
+	mr := g.matcher.Match(host, req.Scheme, req.Port, primary, req.Tool, req.Purpose, req.Method, req.Path)
 	if !mr.Allowed {
 		denied := &DenyError{
 			Category: DenyNotAllowed,
@@ -178,6 +180,34 @@ func (g *Guard) Authorize(ctx context.Context, req Request) (*SafeTarget, error)
 		return nil, &DenyError{
 			Category: DenyToolTarget,
 			Reason:   fmt.Sprintf("purpose %q not permitted by rule", req.Purpose),
+		}
+	}
+	if req.Method != "" && !mr.Rule.methodAllowed(strings.ToUpper(req.Method)) {
+		return nil, &DenyError{
+			Category: DenyMethod,
+			Reason:   fmt.Sprintf("HTTP method %q not permitted by rule", req.Method),
+		}
+	}
+	// A rule that explicitly lists `methods:` requires a non-empty
+	// method on the request: an empty value means "no method" and
+	// must not silently bypass the allow-list.
+	if req.Method == "" && len(mr.Rule.methods) > 0 {
+		return nil, &DenyError{
+			Category: DenyMethod,
+			Reason:   "HTTP method is required by rule but none was supplied",
+		}
+	}
+	if req.Path != "" && !mr.Rule.pathsAllowed(req.Path) {
+		return nil, &DenyError{
+			Category: DenyPath,
+			Reason:   fmt.Sprintf("HTTP path %q not permitted by rule", req.Path),
+		}
+	}
+	// Same enforcement for `paths:` as for `methods:`.
+	if req.Path == "" && len(mr.Rule.paths) > 0 {
+		return nil, &DenyError{
+			Category: DenyPath,
+			Reason:   "HTTP path is required by rule but none was supplied",
 		}
 	}
 
@@ -238,7 +268,7 @@ func (g *Guard) CheckHostname(ctx context.Context, host, tool string) error {
 	// Hostname: do not resolve. The matcher evaluates exact, suffix,
 	// glob, and regexp rules against the hostname string. CIDR rules
 	// require a resolved IP and are skipped here.
-	mr := g.matcher.Match(host, "dns", 0, netip.Addr{}, tool, PurposeProbe)
+	mr := g.matcher.Match(host, "dns", 0, netip.Addr{}, tool, PurposeProbe, "", "")
 	if !mr.Allowed {
 		denied := &DenyError{
 			Category: DenyNotAllowed,

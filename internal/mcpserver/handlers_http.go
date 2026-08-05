@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -85,6 +86,10 @@ func (s *Server) handleHTTPProbe(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	// 3. Authorize the initial URL.
+	method := in.Method
+	if method == "" {
+		method = http.MethodGet
+	}
 	target, err := s.guard.Authorize(ctx, security.Request{
 		Tool:      "http_probe",
 		SessionID: sessionID,
@@ -92,6 +97,7 @@ func (s *Server) handleHTTPProbe(ctx context.Context, req *mcp.CallToolRequest, 
 		Host:      u.Hostname(),
 		Port:      port,
 		Path:      u.Path,
+		Method:    method,
 		Purpose:   security.PurposeProbe,
 	})
 	if err != nil {

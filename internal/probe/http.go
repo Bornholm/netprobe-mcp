@@ -659,6 +659,20 @@ func (r *redirectRevalidator) onRedirect(req *http.Request, via []*http.Request)
 		status = http.StatusFound
 	}
 
+	// Refuse HTTPS → HTTP downgrades (PLAN §5.6). A redirect from an
+	// HTTPS endpoint to a plain HTTP one would leak any state that the
+	// client appended to the second request (cookies, path-bound
+	// tokens) over an unencrypted channel. This check is independent
+	// of the Guard pipeline and must run before it.
+	if last.URL.Scheme == "https" && req.URL.Scheme == "http" {
+		return &ErrRedirectBlocked{
+			Target:   req.URL.String(),
+			Category: "downgrade",
+			Reason:   "redirect blocked: HTTPS to HTTP downgrade",
+			Status:   status,
+		}
+	}
+
 	scheme := "http"
 	if req.URL.Scheme == "https" {
 		scheme = "https"
