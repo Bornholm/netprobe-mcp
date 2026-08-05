@@ -11,9 +11,17 @@ import (
 
 // ruleTLS10Enabled fires when the protocol-enumeration phase
 // detected TLS 1.0 acceptance. RFC 8996 deprecates TLS 1.0.
-type ruleTLS10Enabled struct{}
+type ruleTLS10Enabled struct{ ruleSpec }
 
-func (ruleTLS10Enabled) ID() string { return "TLS_TLS10_ENABLED" }
+func newRuleTLS10Enabled() ruleTLS10Enabled {
+	return ruleTLS10Enabled{ruleSpec{
+		id:          "TLS_TLS10_ENABLED",
+		severity:    SeverityHigh,
+		category:    "protocol",
+		title:       "Server accepts TLS 1.0",
+		remediation: "Disable TLS 1.0 on the server (e.g. nginx: ssl_protocols TLSv1.2 TLSv1.3;).",
+	}}
+}
 
 func (r ruleTLS10Enabled) Evaluate(c *EvalContext) []Finding {
 	if c.Protocols == nil || c.Protocols.TLS10 != TriYes {
@@ -36,9 +44,17 @@ func (r ruleTLS10Enabled) Evaluate(c *EvalContext) []Finding {
 
 // ruleTLS11Enabled fires when TLS 1.1 is accepted. Deprecated since
 // RFC 8996 (March 2021).
-type ruleTLS11Enabled struct{}
+type ruleTLS11Enabled struct{ ruleSpec }
 
-func (ruleTLS11Enabled) ID() string { return "TLS_TLS11_ENABLED" }
+func newRuleTLS11Enabled() ruleTLS11Enabled {
+	return ruleTLS11Enabled{ruleSpec{
+		id:          "TLS_TLS11_ENABLED",
+		severity:    SeverityHigh,
+		category:    "protocol",
+		title:       "Server accepts TLS 1.1",
+		remediation: "Disable TLS 1.1 on the server (e.g. nginx: ssl_protocols TLSv1.2 TLSv1.3;).",
+	}}
+}
 
 func (r ruleTLS11Enabled) Evaluate(c *EvalContext) []Finding {
 	if c.Protocols == nil || c.Protocols.TLS11 != TriYes {
@@ -60,9 +76,17 @@ func (r ruleTLS11Enabled) Evaluate(c *EvalContext) []Finding {
 
 // ruleNoTLS12 fires when the server does not negotiate TLS 1.2.
 // Some legacy clients still require it.
-type ruleNoTLS12 struct{}
+type ruleNoTLS12 struct{ ruleSpec }
 
-func (ruleNoTLS12) ID() string { return "TLS_NO_TLS12" }
+func newRuleNoTLS12() ruleNoTLS12 {
+	return ruleNoTLS12{ruleSpec{
+		id:          "TLS_NO_TLS12",
+		severity:    SeverityHigh,
+		category:    "protocol",
+		title:       "Server does not support TLS 1.2",
+		remediation: "Enable TLS 1.2 alongside TLS 1.3 on the server.",
+	}}
+}
 
 func (r ruleNoTLS12) Evaluate(c *EvalContext) []Finding {
 	if c.Protocols == nil || c.Protocols.TLS12 != TriNo {
@@ -83,9 +107,17 @@ func (r ruleNoTLS12) Evaluate(c *EvalContext) []Finding {
 
 // ruleNoTLS13 fires when the server does not negotiate TLS 1.3.
 // Low severity: TLS 1.2 remains acceptable.
-type ruleNoTLS13 struct{}
+type ruleNoTLS13 struct{ ruleSpec }
 
-func (ruleNoTLS13) ID() string { return "TLS_NO_TLS13" }
+func newRuleNoTLS13() ruleNoTLS13 {
+	return ruleNoTLS13{ruleSpec{
+		id:          "TLS_NO_TLS13",
+		severity:    SeverityLow,
+		category:    "protocol",
+		title:       "Server does not support TLS 1.3",
+		remediation: "Upgrade the server to a TLS 1.3-capable build.",
+	}}
+}
 
 func (r ruleNoTLS13) Evaluate(c *EvalContext) []Finding {
 	if c.Protocols == nil || c.Protocols.TLS13 != TriNo {
@@ -112,9 +144,17 @@ func (r ruleNoTLS13) Evaluate(c *EvalContext) []Finding {
 // crypto/tls path needs the probe to be opted in and offers a
 // single 3DES suite, while the raw path offers each 3DES suite
 // individually.
-type ruleWeakCipher3DES struct{}
+type ruleWeakCipher3DES struct{ ruleSpec }
 
-func (ruleWeakCipher3DES) ID() string { return "TLS_WEAK_CIPHER_3DES" }
+func newRuleWeakCipher3DES() ruleWeakCipher3DES {
+	return ruleWeakCipher3DES{ruleSpec{
+		id:          "TLS_WEAK_CIPHER_3DES",
+		severity:    SeverityHigh,
+		category:    "crypto",
+		title:       "Server accepts 3DES cipher suites",
+		remediation: "Disable 3DES on the server. Restrict the cipher list to AES-GCM and ChaCha20-Poly1305 suites.",
+	}}
+}
 
 func (r ruleWeakCipher3DES) Evaluate(c *EvalContext) []Finding {
 	if c.Ciphers == nil && !weakCipherAccepted(c, "TLS_WEAK_CIPHER_3DES") {
@@ -141,9 +181,17 @@ func (r ruleWeakCipher3DES) Evaluate(c *EvalContext) []Finding {
 
 // ruleWeakCipherCBCSHA1 fires when the cipher-enumeration phase
 // found CBC + HMAC-SHA1 accepted.
-type ruleWeakCipherCBCSHA1 struct{}
+type ruleWeakCipherCBCSHA1 struct{ ruleSpec }
 
-func (ruleWeakCipherCBCSHA1) ID() string { return "TLS_WEAK_CIPHER_CBC_SHA1" }
+func newRuleWeakCipherCBCSHA1() ruleWeakCipherCBCSHA1 {
+	return ruleWeakCipherCBCSHA1{ruleSpec{
+		id:          "TLS_WEAK_CIPHER_CBC_SHA1",
+		severity:    SeverityMedium,
+		category:    "crypto",
+		title:       "Server accepts CBC + HMAC-SHA1 cipher suites",
+		remediation: "Disable CBC + HMAC-SHA1 suites; prefer AEAD suites.",
+	}}
+}
 
 func (r ruleWeakCipherCBCSHA1) Evaluate(c *EvalContext) []Finding {
 	if c.Ciphers == nil || !c.Ciphers.WeakCBCSHA1 {
@@ -165,9 +213,17 @@ func (r ruleWeakCipherCBCSHA1) Evaluate(c *EvalContext) []Finding {
 
 // ruleNoForwardSecrecy fires when the cipher-enumeration phase
 // could not negotiate a single ECDHE/DHE suite.
-type ruleNoForwardSecrecy struct{}
+type ruleNoForwardSecrecy struct{ ruleSpec }
 
-func (ruleNoForwardSecrecy) ID() string { return "TLS_NO_FORWARD_SECRECY" }
+func newRuleNoForwardSecrecy() ruleNoForwardSecrecy {
+	return ruleNoForwardSecrecy{ruleSpec{
+		id:          "TLS_NO_FORWARD_SECRECY",
+		severity:    SeverityHigh,
+		category:    "crypto",
+		title:       "Server does not offer any forward-secret cipher suite",
+		remediation: "Configure the server to prefer ECDHE suites (nginx: ssl_prefer_server_ciphers on; ssl_ecdh_curve X25519:secp384r1;).",
+	}}
+}
 
 func (r ruleNoForwardSecrecy) Evaluate(c *EvalContext) []Finding {
 	if c.Ciphers == nil || c.Ciphers.ForwardSecrecy {
@@ -190,9 +246,17 @@ func (r ruleNoForwardSecrecy) Evaluate(c *EvalContext) []Finding {
 // ruleHSTSShortMaxAge fires when the HSTS header advertises a
 // max-age below the 180-day minimum recommended by the HSTS
 // preload programme.
-type ruleHSTSShortMaxAge struct{}
+type ruleHSTSShortMaxAge struct{ ruleSpec }
 
-func (ruleHSTSShortMaxAge) ID() string { return "TLS_HSTS_SHORT_MAXAGE" }
+func newRuleHSTSShortMaxAge() ruleHSTSShortMaxAge {
+	return ruleHSTSShortMaxAge{ruleSpec{
+		id:          "TLS_HSTS_SHORT_MAXAGE",
+		severity:    SeverityLow,
+		category:    "config",
+		title:       "HSTS max-age is shorter than 180 days",
+		remediation: "Set max-age to at least 15552000 (180 days).",
+	}}
+}
 
 func (r ruleHSTSShortMaxAge) Evaluate(c *EvalContext) []Finding {
 	if c.HSTS == nil || !c.HSTS.HSTSShortMaxAge {
@@ -219,9 +283,17 @@ func (r ruleHSTSShortMaxAge) Evaluate(c *EvalContext) []Finding {
 // ruleHSTSOnHTTP fires when HSTS is delivered over plain HTTP.
 // Strict clients ignore the header in this case but it is still
 // informational for the LLM.
-type ruleHSTSOnHTTP struct{}
+type ruleHSTSOnHTTP struct{ ruleSpec }
 
-func (ruleHSTSOnHTTP) ID() string { return "TLS_HSTS_ON_HTTP" }
+func newRuleHSTSOnHTTP() ruleHSTSOnHTTP {
+	return ruleHSTSOnHTTP{ruleSpec{
+		id:          "TLS_HSTS_ON_HTTP",
+		severity:    SeverityLow,
+		category:    "config",
+		title:       "Strict-Transport-Security sent over plain HTTP",
+		remediation: "If the host serves both HTTP and HTTPS, ensure HTTPS responses always include HSTS. Plain HTTP responses should redirect to HTTPS.",
+	}}
+}
 
 func (r ruleHSTSOnHTTP) Evaluate(c *EvalContext) []Finding {
 	if c.HSTS == nil || !c.HSTS.HSTSOnHTTP {
@@ -246,9 +318,17 @@ func (r ruleHSTSOnHTTP) Evaluate(c *EvalContext) []Finding {
 // ruleHSTSMissing fires when the HSTS phase ran and the header
 // was absent. Medium severity: clients remain vulnerable to
 // SSL-stripping on first contact.
-type ruleHSTSMissing struct{}
+type ruleHSTSMissing struct{ ruleSpec }
 
-func (ruleHSTSMissing) ID() string { return "TLS_HSTS_MISSING" }
+func newRuleHSTSMissing() ruleHSTSMissing {
+	return ruleHSTSMissing{ruleSpec{
+		id:          "TLS_HSTS_MISSING",
+		severity:    SeverityMedium,
+		category:    "config",
+		title:       "Strict-Transport-Security header is missing",
+		remediation: "Add a Strict-Transport-Security header with max-age ≥ 31536000 and includeSubDomains.",
+	}}
+}
 
 func (r ruleHSTSMissing) Evaluate(c *EvalContext) []Finding {
 	if c.HSTS == nil {
@@ -273,9 +353,17 @@ func (r ruleHSTSMissing) Evaluate(c *EvalContext) []Finding {
 
 // ruleHTTPNoRedirect fires when the HSTS phase ran and no HTTP→HTTPS
 // redirect was observed.
-type ruleHTTPNoRedirect struct{}
+type ruleHTTPNoRedirect struct{ ruleSpec }
 
-func (ruleHTTPNoRedirect) ID() string { return "TLS_HTTP_NO_REDIRECT" }
+func newRuleHTTPNoRedirect() ruleHTTPNoRedirect {
+	return ruleHTTPNoRedirect{ruleSpec{
+		id:          "TLS_HTTP_NO_REDIRECT",
+		severity:    SeverityMedium,
+		category:    "config",
+		title:       "Port 80 does not redirect to HTTPS",
+		remediation: "Add a 301 redirect from http:// to https:// on the same hostname and path.",
+	}}
+}
 
 func (r ruleHTTPNoRedirect) Evaluate(c *EvalContext) []Finding {
 	if c.HSTS == nil {
@@ -301,9 +389,17 @@ func (r ruleHTTPNoRedirect) Evaluate(c *EvalContext) []Finding {
 // ruleStartTLSNotOffered fires when the STARTTLS upgrade was
 // requested but the server did not advertise it (the protocol
 // dialogue itself failed).
-type ruleStartTLSNotOffered struct{}
+type ruleStartTLSNotOffered struct{ ruleSpec }
 
-func (ruleStartTLSNotOffered) ID() string { return "TLS_STARTTLS_NOT_OFFERED" }
+func newRuleStartTLSNotOffered() ruleStartTLSNotOffered {
+	return ruleStartTLSNotOffered{ruleSpec{
+		id:          "TLS_STARTTLS_NOT_OFFERED",
+		severity:    SeverityMedium,
+		category:    "config",
+		title:       "STARTTLS is not offered on the target port",
+		remediation: "Configure the server to advertise and honour STARTTLS upgrades.",
+	}}
+}
 
 func (r ruleStartTLSNotOffered) Evaluate(c *EvalContext) []Finding {
 	if c.StartTLS == nil || c.StartTLS.UpgradeSucceeded {
@@ -337,9 +433,17 @@ func (r ruleStartTLSNotOffered) Evaluate(c *EvalContext) []Finding {
 // signal that the operator has not configured a strict default
 // server block; legacy clients without SNI silently receive the
 // wrong certificate. See PLAN.md §8.5.
-type ruleSNIDefaultMismatch struct{}
+type ruleSNIDefaultMismatch struct{ ruleSpec }
 
-func (ruleSNIDefaultMismatch) ID() string { return "TLS_SNI_DEFAULT_CERT_MISMATCH" }
+func newRuleSNIDefaultMismatch() ruleSNIDefaultMismatch {
+	return ruleSNIDefaultMismatch{ruleSpec{
+		id:          "TLS_SNI_DEFAULT_CERT_MISMATCH",
+		severity:    SeverityMedium,
+		category:    "config",
+		title:       "Default certificate differs from the SNI-selected one",
+		remediation: "Configure an explicit default server with a neutral certificate, or reject no-SNI connections altogether (nginx: ssl_reject_handshake on in the default server block; Apache: SSLRequireSSL with a strict default vhost).",
+	}}
+}
 
 func (r ruleSNIDefaultMismatch) Evaluate(c *EvalContext) []Finding {
 	s := c.SNI
@@ -406,6 +510,55 @@ func leafFingerprint(c *x509.Certificate) string {
 	return fingerprintSHA256Hex(c.Raw)
 }
 
+// ruleSNIRequired fires when the SNI phase ran and the server
+// answered a no-SNI handshake successfully. Info severity: not
+// strictly a misconfiguration, but it means legacy clients without
+// SNI support (very old Java, embedded TLS libraries, OpenSSL
+// s_client without -servername) will receive whatever default
+// certificate the server serves — which may or may not be the
+// correct one for any specific SNI.
+type ruleSNIRequired struct{ ruleSpec }
+
+func newRuleSNIRequired() ruleSNIRequired {
+	return ruleSNIRequired{ruleSpec{
+		id:          "TLS_SNI_NOT_REQUIRED",
+		severity:    SeverityInfo,
+		category:    "config",
+		title:       "Server accepts connections without SNI",
+		remediation: "If you do not need to support pre-SNI clients, reject no-SNI handshakes (nginx: ssl_reject_handshake on in the default server block).",
+	}}
+}
+
+func (r ruleSNIRequired) Evaluate(c *EvalContext) []Finding {
+	s := c.SNI
+	if s == nil {
+		return nil
+	}
+	if !s.NoSNIHandshakeSucceeded {
+		return nil
+	}
+	return []Finding{{
+		ID:       r.ID(),
+		Severity: SeverityInfo,
+		Category: "config",
+		Title:    "Server accepts connections without SNI",
+		Detail: "A connection without SNI succeeded, returning a " +
+			"certificate (subject " + s.NoSNISubject + "). Clients that " +
+			"do not emit SNI — typically very old Java, embedded TLS " +
+			"libraries, OpenSSL s_client without -servername — will " +
+			"receive this default certificate. Pair this with " +
+			"TLS_SNI_DEFAULT_CERT_MISMATCH to know whether the default " +
+			"is also the intended certificate.",
+		Remediation: "If you do not need to support pre-SNI clients, " +
+			"reject no-SNI handshakes (nginx: ssl_reject_handshake on " +
+			"in the default server block).",
+		Evidence: map[string]any{
+			"no_sni_subject":     s.NoSNISubject,
+			"no_sni_fingerprint": s.NoSNIFingerprint,
+		},
+	}}
+}
+
 // weakCipherAccepted reports whether the raw-ClientHello phase
 // detected that the server accepted a particular weak cipher
 // class. Empty when the phase did not run.
@@ -421,9 +574,17 @@ func weakCipherAccepted(c *EvalContext, id string) bool {
 // ruleWeakCipherRC4 fires when the raw-ClientHello phase observed
 // the server accepting an RC4-based suite. This finding is
 // undetectable with crypto/tls alone.
-type ruleWeakCipherRC4 struct{}
+type ruleWeakCipherRC4 struct{ ruleSpec }
 
-func (ruleWeakCipherRC4) ID() string { return "TLS_WEAK_CIPHER_RC4" }
+func newRuleWeakCipherRC4() ruleWeakCipherRC4 {
+	return ruleWeakCipherRC4{ruleSpec{
+		id:          "TLS_WEAK_CIPHER_RC4",
+		severity:    SeverityCritical,
+		category:    "protocol",
+		title:       "Server accepts RC4 cipher suites",
+		remediation: "Disable every RC4-based cipher suite in the server configuration. Modern TLS clients negotiate AES-GCM or ChaCha20-Poly1305 instead.",
+	}}
+}
 
 func (r ruleWeakCipherRC4) Evaluate(c *EvalContext) []Finding {
 	if !weakCipherAccepted(c, "TLS_WEAK_CIPHER_RC4") {
@@ -444,15 +605,18 @@ func (r ruleWeakCipherRC4) Evaluate(c *EvalContext) []Finding {
 	}}
 }
 
-// ruleWeakCipher3DESFromRaw has been merged into ruleWeakCipher3DES
-// to keep a single source of truth for the TLS_WEAK_CIPHER_3DES
-// finding ID. The merge is at the Evaluate() method of
-// ruleWeakCipher3DES above.
-
 // ruleWeakCipherNULL flags NULL cipher suites (no encryption).
-type ruleWeakCipherNULL struct{}
+type ruleWeakCipherNULL struct{ ruleSpec }
 
-func (ruleWeakCipherNULL) ID() string { return "TLS_WEAK_CIPHER_NULL" }
+func newRuleWeakCipherNULL() ruleWeakCipherNULL {
+	return ruleWeakCipherNULL{ruleSpec{
+		id:          "TLS_WEAK_CIPHER_NULL",
+		severity:    SeverityCritical,
+		category:    "protocol",
+		title:       "Server accepts NULL cipher suites",
+		remediation: "Remove NULL suites from the cipher list. They have no legitimate use.",
+	}}
+}
 
 func (r ruleWeakCipherNULL) Evaluate(c *EvalContext) []Finding {
 	if !weakCipherAccepted(c, "TLS_WEAK_CIPHER_NULL") {
@@ -471,9 +635,17 @@ func (r ruleWeakCipherNULL) Evaluate(c *EvalContext) []Finding {
 }
 
 // ruleWeakCipherEXPORT flags EXPORT-grade cipher suites (FREAK).
-type ruleWeakCipherEXPORT struct{}
+type ruleWeakCipherEXPORT struct{ ruleSpec }
 
-func (ruleWeakCipherEXPORT) ID() string { return "TLS_WEAK_CIPHER_EXPORT" }
+func newRuleWeakCipherEXPORT() ruleWeakCipherEXPORT {
+	return ruleWeakCipherEXPORT{ruleSpec{
+		id:          "TLS_WEAK_CIPHER_EXPORT",
+		severity:    SeverityCritical,
+		category:    "protocol",
+		title:       "Server accepts EXPORT-grade cipher suites (FREAK)",
+		remediation: "Remove all EXPORT suites from the cipher list.",
+	}}
+}
 
 func (r ruleWeakCipherEXPORT) Evaluate(c *EvalContext) []Finding {
 	if !weakCipherAccepted(c, "TLS_WEAK_CIPHER_EXPORT") {
@@ -492,14 +664,21 @@ func (r ruleWeakCipherEXPORT) Evaluate(c *EvalContext) []Finding {
 	}}
 }
 
-// ruleSSLV3Enabled flags a server that still negotiates SSL 3.0.
-// SSLv3 is forbidden by RFC 7568 and exploitable via POODLE
-// (CVE-2014-3566). Indistinguishable from the crypto/tls version
-// enumeration rule because we offer a real ClientHello at TLS 1.0
-// anyway; the raw path here is the only way to test SSLv3 itself.
-type ruleSSLV3Enabled struct{}
+// ruleSSLV3Enabled fires when the raw-ClientHello probe at SSL 3.0
+// received a ServerHello at the same version, indicating the server
+// is willing to negotiate SSL 3.0. SSLv3 is forbidden by RFC 7568
+// and exploitable via POODLE (CVE-2014-3566).
+type ruleSSLV3Enabled struct{ ruleSpec }
 
-func (ruleSSLV3Enabled) ID() string { return "TLS_SSLV3_ENABLED" }
+func newRuleSSLV3Enabled() ruleSSLV3Enabled {
+	return ruleSSLV3Enabled{ruleSpec{
+		id:          "TLS_SSLV3_ENABLED",
+		severity:    SeverityCritical,
+		category:    "protocol",
+		title:       "Server accepts SSL 3.0 (POODLE)",
+		remediation: "Disable SSL 3.0 on the server. Modern TLS clients do not need to negotiate it.",
+	}}
+}
 
 func (r ruleSSLV3Enabled) Evaluate(c *EvalContext) []Finding {
 	if !weakCipherAccepted(c, "TLS_SSLV3_ENABLED") {
@@ -516,5 +695,38 @@ func (r ruleSSLV3Enabled) Evaluate(c *EvalContext) []Finding {
 			"(CVE-2014-3566) and is forbidden by RFC 7568.",
 		Remediation: "Disable SSL 3.0 on the server. Modern TLS clients do " +
 			"not need to negotiate it.",
+	}}
+}
+
+// ruleAnonCipher fires when the raw-ClientHello probe detected that
+// the server accepted a DH_anon cipher suite. Critical because
+// anonymous suites provide no authentication: a MITM is trivial.
+type ruleAnonCipher struct{ ruleSpec }
+
+func newRuleAnonCipher() ruleAnonCipher {
+	return ruleAnonCipher{ruleSpec{
+		id:          "TLS_ANON_CIPHER",
+		severity:    SeverityCritical,
+		category:    "protocol",
+		title:       "Server accepts anonymous cipher suites",
+		remediation: "Remove every DH_anon cipher suite from the server configuration. Anonymous suites have no legitimate use.",
+	}}
+}
+
+func (r ruleAnonCipher) Evaluate(c *EvalContext) []Finding {
+	if !weakCipherAccepted(c, "TLS_ANON_CIPHER") {
+		return nil
+	}
+	return []Finding{{
+		ID:       r.ID(),
+		Severity: SeverityCritical,
+		Category: "protocol",
+		Title:    "Server accepts anonymous cipher suites",
+		Detail: "The raw-ClientHello probe observed the server accepting " +
+			"an anonymous cipher suite (DH_anon family). Anonymous suites " +
+			"perform no peer authentication: a man-in-the-middle attack " +
+			"is trivial, and any data exchanged is unauthenticated.",
+		Remediation: "Remove every DH_anon cipher suite from the server " +
+			"configuration. Anonymous suites have no legitimate use.",
 	}}
 }

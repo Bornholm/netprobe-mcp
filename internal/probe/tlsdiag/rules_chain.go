@@ -3,9 +3,20 @@ package tlsdiag
 // ruleChainIncomplete fires when the presented chain cannot reach a
 // trusted root even when only the presented intermediates are used.
 // High severity because the service is unusable in non-browser clients.
-type ruleChainIncomplete struct{}
+type ruleChainIncomplete struct{ ruleSpec }
 
-func (ruleChainIncomplete) ID() string { return "TLS_CHAIN_INCOMPLETE" }
+func newRuleChainIncomplete() ruleChainIncomplete {
+	return ruleChainIncomplete{ruleSpec{
+		id:       "TLS_CHAIN_INCOMPLETE",
+		severity: SeverityHigh,
+		category: "chain",
+		title:    "Certificate chain cannot reach a trusted root",
+		remediation: "Inspect the presented chain. Either the server is missing an " +
+			"intermediate CA, or the issuer is not in the trust store. With nginx " +
+			"prefer the fullchain.pem produced by your ACME client rather than cert.pem; " +
+			"with Apache use SSLCertificateChainFile or a concatenated SSLCertificateFile.",
+	}}
+}
 
 func (r ruleChainIncomplete) Evaluate(c *EvalContext) []Finding {
 	if c.ChainRep.Complete {
@@ -39,9 +50,21 @@ func (r ruleChainIncomplete) Evaluate(c *EvalContext) []Finding {
 // NOT fetch the AIA — the finding is reported from the passive
 // observation that the presented chain is incomplete and the leaf
 // advertises an AIA URL.
-type ruleChainMissingIntermediate struct{}
+type ruleChainMissingIntermediate struct{ ruleSpec }
 
-func (ruleChainMissingIntermediate) ID() string { return "TLS_CHAIN_MISSING_INTERMEDIATE" }
+func newRuleChainMissingIntermediate() ruleChainMissingIntermediate {
+	return ruleChainMissingIntermediate{ruleSpec{
+		id:       "TLS_CHAIN_MISSING_INTERMEDIATE",
+		severity: SeverityHigh,
+		category: "chain",
+		title:    "Incomplete certificate chain: intermediate CA not served",
+		remediation: "Configure the server to send the full chain " +
+			"(leaf + intermediates, excluding the root). With nginx use " +
+			"the fullchain.pem produced by your ACME client rather than cert.pem; " +
+			"with Apache use SSLCertificateChainFile or a concatenated " +
+			"SSLCertificateFile.",
+	}}
+}
 
 func (r ruleChainMissingIntermediate) Evaluate(c *EvalContext) []Finding {
 	if !c.ChainRep.MissingIntermediate {
@@ -77,9 +100,18 @@ func (r ruleChainMissingIntermediate) Evaluate(c *EvalContext) []Finding {
 
 // ruleChainMisordered fires when the chain is not leaf-to-root. Low
 // severity because most clients tolerate it, but it violates RFC 5246.
-type ruleChainMisordered struct{}
+type ruleChainMisordered struct{ ruleSpec }
 
-func (ruleChainMisordered) ID() string { return "TLS_CHAIN_MISORDERED" }
+func newRuleChainMisordered() ruleChainMisordered {
+	return ruleChainMisordered{ruleSpec{
+		id:       "TLS_CHAIN_MISORDERED",
+		severity: SeverityLow,
+		category: "chain",
+		title:    "Certificate chain is not in leaf-to-root order",
+		remediation: "Re-order the certificates served by the server. The leaf " +
+			"must come first, with each subsequent certificate signing the previous one.",
+	}}
+}
 
 func (r ruleChainMisordered) Evaluate(c *EvalContext) []Finding {
 	if c.ChainRep.Ordered || c.ChainRep.Length < 2 {
@@ -102,9 +134,19 @@ func (r ruleChainMisordered) Evaluate(c *EvalContext) []Finding {
 
 // ruleChainRootIncluded fires when the chain includes the self-signed
 // root CA. Low severity: wastes bandwidth and confuses some clients.
-type ruleChainRootIncluded struct{}
+type ruleChainRootIncluded struct{ ruleSpec }
 
-func (ruleChainRootIncluded) ID() string { return "TLS_CHAIN_ROOT_INCLUDED" }
+func newRuleChainRootIncluded() ruleChainRootIncluded {
+	return ruleChainRootIncluded{ruleSpec{
+		id:       "TLS_CHAIN_ROOT_INCLUDED",
+		severity: SeverityLow,
+		category: "chain",
+		title:    "Self-signed root CA is included in the served chain",
+		remediation: "Configure the server to send only the leaf and intermediate " +
+			"certificates, not the root. ACME clients typically emit a fullchain.pem " +
+			"that already excludes the root.",
+	}}
+}
 
 func (r ruleChainRootIncluded) Evaluate(c *EvalContext) []Finding {
 	if !c.ChainRep.RootIncluded {
@@ -128,9 +170,19 @@ func (r ruleChainRootIncluded) Evaluate(c *EvalContext) []Finding {
 // ruleChainExtraneous fires when the chain contains a certificate that
 // is not linked to the leaf. Low severity; usually harmless but
 // indicates a misconfigured bundle.
-type ruleChainExtraneous struct{}
+type ruleChainExtraneous struct{ ruleSpec }
 
-func (ruleChainExtraneous) ID() string { return "TLS_CHAIN_EXTRANEOUS_CERT" }
+func newRuleChainExtraneous() ruleChainExtraneous {
+	return ruleChainExtraneous{ruleSpec{
+		id:       "TLS_CHAIN_EXTRANEOUS_CERT",
+		severity: SeverityLow,
+		category: "chain",
+		title:    "Chain contains a certificate unrelated to the leaf",
+		remediation: "Inspect the bundle and remove certificates that are not in the " +
+			"leaf-to-root path. A typical misconfiguration is leaving an old " +
+			"intermediate in the chain after a re-issue.",
+	}}
+}
 
 func (r ruleChainExtraneous) Evaluate(c *EvalContext) []Finding {
 	if len(c.ChainRep.ExtraneousCerts) == 0 {
@@ -153,9 +205,19 @@ func (r ruleChainExtraneous) Evaluate(c *EvalContext) []Finding {
 
 // ruleSelfSigned fires when the leaf is self-signed. High severity
 // because it means the server has no chain of trust at all.
-type ruleSelfSigned struct{}
+type ruleSelfSigned struct{ ruleSpec }
 
-func (ruleSelfSigned) ID() string { return "TLS_SELF_SIGNED" }
+func newRuleSelfSigned() ruleSelfSigned {
+	return ruleSelfSigned{ruleSpec{
+		id:       "TLS_SELF_SIGNED",
+		severity: SeverityHigh,
+		category: "chain",
+		title:    "Leaf certificate is self-signed",
+		remediation: "Obtain a certificate from a recognised CA. For internal services, " +
+			"either use an internal CA distributed via trust store, or an ACME-based " +
+			"private CA with explicit trust.",
+	}}
+}
 
 func (r ruleSelfSigned) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || !isSelfSigned(c.Leaf) {
@@ -180,9 +242,18 @@ func (r ruleSelfSigned) Evaluate(c *EvalContext) []Finding {
 
 // ruleUntrustedRoot fires when the chain's root is not in the
 // configured (system) trust store.
-type ruleUntrustedRoot struct{}
+type ruleUntrustedRoot struct{ ruleSpec }
 
-func (ruleUntrustedRoot) ID() string { return "TLS_UNTRUSTED_ROOT" }
+func newRuleUntrustedRoot() ruleUntrustedRoot {
+	return ruleUntrustedRoot{ruleSpec{
+		id:       "TLS_UNTRUSTED_ROOT",
+		severity: SeverityHigh,
+		category: "chain",
+		title:    "Root CA not in the trust store",
+		remediation: "Either use a publicly trusted CA, or distribute the private root " +
+			"to clients via MDM, group policy, or in-application trust store.",
+	}}
+}
 
 func (r ruleUntrustedRoot) Evaluate(c *EvalContext) []Finding {
 	if c.ChainRep.TrustedBySystem {
@@ -205,4 +276,60 @@ func (r ruleUntrustedRoot) Evaluate(c *EvalContext) []Finding {
 			"verification_error": c.ChainRep.VerificationError,
 		},
 	}}
+}
+
+// ruleChainCertExpired fires when any certificate in the chain (other
+// than the leaf, whose expiry is covered by ruleCertExpired) has
+// already passed its NotAfter. Critical because the chain cannot
+// validate when an intermediate or root is expired, even if the
+// leaf itself is fresh.
+type ruleChainCertExpired struct{ ruleSpec }
+
+func newRuleChainCertExpired() ruleChainCertExpired {
+	return ruleChainCertExpired{ruleSpec{
+		id:          "TLS_CHAIN_CERT_EXPIRED",
+		severity:    SeverityCritical,
+		category:    "chain",
+		title:       "An intermediate or root certificate is expired",
+		remediation: "Replace the expired certificate in the chain. ACME clients usually automate this; for private CAs, audit the issuing pipeline.",
+	}}
+}
+
+func (r ruleChainCertExpired) Evaluate(c *EvalContext) []Finding {
+	if c.Now.IsZero() || len(c.Chain) < 2 {
+		return nil
+	}
+	var out []Finding
+	for _, cert := range c.Chain[1:] {
+		if cert == nil || cert.NotAfter.IsZero() {
+			continue
+		}
+		if !c.Now.After(cert.NotAfter) {
+			continue
+		}
+		// Don't double-report: if the chain as a whole fails to
+		// verify, ruleChainIncomplete already covers it. Only
+		// report expired intermediate certs that would otherwise
+		// be missed.
+		subject := cert.Subject.String()
+		out = append(out, Finding{
+			ID:       r.ID(),
+			Severity: SeverityCritical,
+			Category: "chain",
+			Title:    "An intermediate or root certificate is expired",
+			Detail: "A non-leaf certificate in the chain (" + subject +
+				") has a NotAfter in the past. Clients that verify " +
+				"every certificate in the chain will reject the handshake.",
+			Remediation: "Replace the expired certificate. ACME clients " +
+				"automate this for public certificates; for private CAs, " +
+				"audit the issuing pipeline.",
+			Evidence: map[string]any{
+				"subject":   subject,
+				"not_after": cert.NotAfter.UTC(),
+				"now":       c.Now.UTC(),
+				"issuer":    cert.Issuer.String(),
+			},
+		})
+	}
+	return out
 }

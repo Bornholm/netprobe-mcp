@@ -77,6 +77,16 @@ var weakCipherSuites = []weakCipherSuite{
 	{code: 0x0003, name: "TLS_RSA_EXPORT_WITH_RC4_40_MD5", finding: "TLS_WEAK_CIPHER_EXPORT"},
 	{code: 0x0006, name: "TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5", finding: "TLS_WEAK_CIPHER_EXPORT"},
 	{code: 0x0008, name: "TLS_RSA_EXPORT_WITH_DES40_CBC_SHA", finding: "TLS_WEAK_CIPHER_EXPORT"},
+	// Anonymous cipher suites — no peer authentication, MITM trivial.
+	// Codes per RFC 5246 / IANA TLS Cipher Suite registry.
+	{code: 0x0017, name: "TLS_DH_anon_WITH_AES_128_CBC_SHA", finding: "TLS_ANON_CIPHER"},
+	{code: 0x0018, name: "TLS_DH_anon_WITH_AES_256_CBC_SHA", finding: "TLS_ANON_CIPHER"},
+	{code: 0x0019, name: "TLS_DH_anon_WITH_AES_128_CBC_SHA256", finding: "TLS_ANON_CIPHER"},
+	{code: 0x001a, name: "TLS_DH_anon_WITH_AES_256_CBC_SHA256", finding: "TLS_ANON_CIPHER"},
+	{code: 0x0034, name: "TLS_DH_anon_WITH_AES_128_GCM_SHA256", finding: "TLS_ANON_CIPHER"},
+	{code: 0x003a, name: "TLS_DH_anon_WITH_AES_256_GCM_SHA384", finding: "TLS_ANON_CIPHER"},
+	{code: 0x006c, name: "TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA", finding: "TLS_ANON_CIPHER"},
+	{code: 0x006d, name: "TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA", finding: "TLS_ANON_CIPHER"},
 }
 
 // weakProtocolVersion is one TLS protocol version we attempt to

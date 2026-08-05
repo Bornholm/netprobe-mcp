@@ -10,9 +10,18 @@ import (
 // ruleHostnameMismatch fires when the requested hostname does not
 // match any SAN entry. Critical because the connection cannot be
 // safely identified.
-type ruleHostnameMismatch struct{}
+type ruleHostnameMismatch struct{ ruleSpec }
 
-func (ruleHostnameMismatch) ID() string { return "TLS_HOSTNAME_MISMATCH" }
+func newRuleHostnameMismatch() ruleHostnameMismatch {
+	return ruleHostnameMismatch{ruleSpec{
+		id:       "TLS_HOSTNAME_MISMATCH",
+		severity: SeverityCritical,
+		category: "identity",
+		title:    "Hostname does not match the certificate",
+		remediation: "Reissue the certificate including the correct hostname in the SAN " +
+			"extension. Modern clients ignore the CN for identity matching and require SAN.",
+	}}
+}
 
 func (r ruleHostnameMismatch) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || c.Hostname == "" {
@@ -41,9 +50,18 @@ func (r ruleHostnameMismatch) Evaluate(c *EvalContext) []Finding {
 
 // ruleNoSAN fires when the certificate has no Subject Alternative Name
 // extension. High severity: modern clients reject such certificates.
-type ruleNoSAN struct{}
+type ruleNoSAN struct{ ruleSpec }
 
-func (ruleNoSAN) ID() string { return "TLS_NO_SAN" }
+func newRuleNoSAN() ruleNoSAN {
+	return ruleNoSAN{ruleSpec{
+		id:       "TLS_NO_SAN",
+		severity: SeverityHigh,
+		category: "identity",
+		title:    "Certificate has no Subject Alternative Name extension",
+		remediation: "Reissue the certificate with a SAN extension that lists " +
+			"every hostname or IP the service uses.",
+	}}
+}
 
 func (r ruleNoSAN) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -70,9 +88,17 @@ func (r ruleNoSAN) Evaluate(c *EvalContext) []Finding {
 // ruleCNOnlyIdentity fires when the certificate carries an identity
 // only in the CN and has no SAN. Modern clients ignore CN-only
 // identities.
-type ruleCNOnlyIdentity struct{}
+type ruleCNOnlyIdentity struct{ ruleSpec }
 
-func (ruleCNOnlyIdentity) ID() string { return "TLS_CN_ONLY_IDENTITY" }
+func newRuleCNOnlyIdentity() ruleCNOnlyIdentity {
+	return ruleCNOnlyIdentity{ruleSpec{
+		id:          "TLS_CN_ONLY_IDENTITY",
+		severity:    SeverityHigh,
+		category:    "identity",
+		title:       "Identity is only in the Common Name, not in the SAN",
+		remediation: "Reissue the certificate with a SAN extension.",
+	}}
+}
 
 func (r ruleCNOnlyIdentity) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -102,9 +128,18 @@ func (r ruleCNOnlyIdentity) Evaluate(c *EvalContext) []Finding {
 // suffix (e.g. *.com, *.co.uk) or that cover an entire registrable
 // domain (e.g. *.example.com). Both are stronger-issued when needed
 // and weaker-issued when not.
-type ruleWildcardScope struct{}
+type ruleWildcardScope struct{ ruleSpec }
 
-func (ruleWildcardScope) ID() string { return "TLS_WILDCARD_TOO_BROAD" }
+func newRuleWildcardScope() ruleWildcardScope {
+	return ruleWildcardScope{ruleSpec{
+		id:       "TLS_WILDCARD_TOO_BROAD",
+		severity: SeverityHigh,
+		category: "identity",
+		title:    "Wildcard SAN spans a public suffix or registrable domain",
+		remediation: "Reissue with specific hostnames or a wildcard scoped " +
+			"to a domain you control.",
+	}}
+}
 
 func (r ruleWildcardScope) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {

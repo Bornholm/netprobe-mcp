@@ -339,7 +339,7 @@ func TestRuleSNIDefaultMismatch_Triggered(t *testing.T) {
 			SNIMismatch:             true,
 		},
 	}
-	findings := ruleSNIDefaultMismatch{}.Evaluate(ec)
+	findings := newRuleSNIDefaultMismatch().Evaluate(ec)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d: %+v", len(findings), findings)
 	}
@@ -360,7 +360,7 @@ func TestRuleSNIDefaultMismatch_NoFinding_StrictSNI(t *testing.T) {
 			NoSNIError:              "tls: no SNI extension in ClientHello",
 		},
 	}
-	got := ruleSNIDefaultMismatch{}.Evaluate(ec)
+	got := newRuleSNIDefaultMismatch().Evaluate(ec)
 	if len(got) != 0 {
 		t.Errorf("strict SNI should NOT produce a finding, got %+v", got)
 	}
@@ -377,7 +377,7 @@ func TestRuleSNIDefaultMismatch_NoFinding_SameCert(t *testing.T) {
 			NoSNIFingerprint:        "same",
 		},
 	}
-	got := ruleSNIDefaultMismatch{}.Evaluate(ec)
+	got := newRuleSNIDefaultMismatch().Evaluate(ec)
 	if len(got) != 0 {
 		t.Errorf("same-cert default should NOT produce a finding, got %+v", got)
 	}
@@ -389,7 +389,7 @@ func TestRuleSNIDefaultMismatch_NoFinding_NilSNI(t *testing.T) {
 		Hostname: "main.local",
 		SNI:      nil, // phase was not run
 	}
-	got := ruleSNIDefaultMismatch{}.Evaluate(ec)
+	got := newRuleSNIDefaultMismatch().Evaluate(ec)
 	if len(got) != 0 {
 		t.Errorf("nil SNI should NOT produce a finding, got %+v", got)
 	}

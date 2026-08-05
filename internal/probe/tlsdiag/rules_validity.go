@@ -4,9 +4,18 @@ import "time"
 
 // ruleCertExpired detects certificates whose NotAfter is in the past.
 // Critical because the service is unusable in conforming clients.
-type ruleCertExpired struct{}
+type ruleCertExpired struct{ ruleSpec }
 
-func (ruleCertExpired) ID() string { return "TLS_CERT_EXPIRED" }
+func newRuleCertExpired() ruleCertExpired {
+	return ruleCertExpired{ruleSpec{
+		id:       "TLS_CERT_EXPIRED",
+		severity: SeverityCritical,
+		category: "validity",
+		title:    "Certificate is expired",
+		remediation: "Renew the certificate immediately. Configure an automated renewal " +
+			"(e.g. ACME client with monitoring) to avoid recurrence.",
+	}}
+}
 
 func (r ruleCertExpired) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || c.Leaf.NotAfter.IsZero() {
@@ -37,9 +46,19 @@ func (r ruleCertExpired) Evaluate(c *EvalContext) []Finding {
 // ruleCertNotYetValid detects certificates whose NotBefore is in the
 // future. Critical because the service is unusable in conforming
 // clients; usually caused by a misconfigured or skewed clock.
-type ruleCertNotYetValid struct{}
+type ruleCertNotYetValid struct{ ruleSpec }
 
-func (ruleCertNotYetValid) ID() string { return "TLS_CERT_NOT_YET_VALID" }
+func newRuleCertNotYetValid() ruleCertNotYetValid {
+	return ruleCertNotYetValid{ruleSpec{
+		id:       "TLS_CERT_NOT_YET_VALID",
+		severity: SeverityCritical,
+		category: "validity",
+		title:    "Certificate is not yet valid",
+		remediation: "Verify that the clocks on the issuing system and the target system " +
+			"are synchronised (e.g. via chrony or systemd-timesyncd). If the certificate " +
+			"is genuinely being used before its validity window starts, do not deploy it.",
+	}}
+}
 
 func (r ruleCertNotYetValid) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || c.Leaf.NotBefore.IsZero() {
@@ -71,9 +90,18 @@ func (r ruleCertNotYetValid) Evaluate(c *EvalContext) []Finding {
 // ruleCertExpiringCritical fires when the leaf is within
 // expiring_critical_days of expiry. High severity because the failure
 // mode is imminent and may have already impacted business workflows.
-type ruleCertExpiringCritical struct{}
+type ruleCertExpiringCritical struct{ ruleSpec }
 
-func (ruleCertExpiringCritical) ID() string { return "TLS_CERT_EXPIRING_CRITICAL" }
+func newRuleCertExpiringCritical() ruleCertExpiringCritical {
+	return ruleCertExpiringCritical{ruleSpec{
+		id:       "TLS_CERT_EXPIRING_CRITICAL",
+		severity: SeverityHigh,
+		category: "validity",
+		title:    "Certificate expires within the critical window",
+		remediation: "Renew the certificate now. Investigate why the renewal pipeline " +
+			"did not act earlier (alert thresholds, scheduler outage, CA rate-limits).",
+	}}
+}
 
 func (r ruleCertExpiringCritical) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -105,9 +133,18 @@ func (r ruleCertExpiringCritical) Evaluate(c *EvalContext) []Finding {
 // ruleCertExpiringSoon fires when the leaf is within
 // expiring_soon_days of expiry. Medium severity: actionable but not
 // yet an outage.
-type ruleCertExpiringSoon struct{}
+type ruleCertExpiringSoon struct{ ruleSpec }
 
-func (ruleCertExpiringSoon) ID() string { return "TLS_CERT_EXPIRING_SOON" }
+func newRuleCertExpiringSoon() ruleCertExpiringSoon {
+	return ruleCertExpiringSoon{ruleSpec{
+		id:       "TLS_CERT_EXPIRING_SOON",
+		severity: SeverityMedium,
+		category: "validity",
+		title:    "Certificate will expire soon",
+		remediation: "Confirm that the renewal pipeline is scheduled and within " +
+			"the warning window. If no renewal is in progress, start one now.",
+	}}
+}
 
 func (r ruleCertExpiringSoon) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -138,9 +175,18 @@ func (r ruleCertExpiringSoon) Evaluate(c *EvalContext) []Finding {
 
 // ruleValidityTooLong fires when a leaf is valid for more than
 // max_validity_days (398 by default — CA/B Forum baseline). Medium.
-type ruleValidityTooLong struct{}
+type ruleValidityTooLong struct{ ruleSpec }
 
-func (ruleValidityTooLong) ID() string { return "TLS_VALIDITY_TOO_LONG" }
+func newRuleValidityTooLong() ruleValidityTooLong {
+	return ruleValidityTooLong{ruleSpec{
+		id:       "TLS_VALIDITY_TOO_LONG",
+		severity: SeverityMedium,
+		category: "validity",
+		title:    "Certificate validity exceeds CA/B Forum maximum",
+		remediation: "Reissue with a validity of at most 398 days. ACME clients " +
+			"configured for short-lived issuance (≤90 days) are recommended.",
+	}}
+}
 
 func (r ruleValidityTooLong) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -175,9 +221,18 @@ func (r ruleValidityTooLong) Evaluate(c *EvalContext) []Finding {
 // ruleValidityExcessive fires when validity exceeds the browser
 // hard-cutoff (825 days). High severity: will be rejected outright by
 // Safari and Chrome.
-type ruleValidityExcessive struct{}
+type ruleValidityExcessive struct{ ruleSpec }
 
-func (ruleValidityExcessive) ID() string { return "TLS_VALIDITY_EXCESSIVE" }
+func newRuleValidityExcessive() ruleValidityExcessive {
+	return ruleValidityExcessive{ruleSpec{
+		id:       "TLS_VALIDITY_EXCESSIVE",
+		severity: SeverityHigh,
+		category: "validity",
+		title:    "Certificate validity exceeds the browser hard cutoff",
+		remediation: "Reissue with a validity of at most 398 days. ACME clients " +
+			"configured for short-lived issuance are recommended.",
+	}}
+}
 
 func (r ruleValidityExcessive) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {

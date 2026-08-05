@@ -7,9 +7,17 @@ import (
 // ruleKeyUsageMissing flags certificates that carry no KeyUsage
 // extension at all. Medium severity: well-formed certificates should
 // declare their intended use.
-type ruleKeyUsageMissing struct{}
+type ruleKeyUsageMissing struct{ ruleSpec }
 
-func (ruleKeyUsageMissing) ID() string { return "TLS_KEY_USAGE_MISSING" }
+func newRuleKeyUsageMissing() ruleKeyUsageMissing {
+	return ruleKeyUsageMissing{ruleSpec{
+		id:          "TLS_KEY_USAGE_MISSING",
+		severity:    SeverityMedium,
+		category:    "extensions",
+		title:       "Certificate has no KeyUsage extension",
+		remediation: "Reissue the certificate with an explicit KeyUsage. For a TLS leaf, digitalSignature (and optionally keyEncipherment for RSA) is the minimum.",
+	}}
+}
 
 func (r ruleKeyUsageMissing) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -34,9 +42,20 @@ func (r ruleKeyUsageMissing) Evaluate(c *EvalContext) []Finding {
 
 // ruleKeyUsageNoDigitalSignature flags certificates that lack the
 // digitalSignature bit — required for any leaf used in a TLS handshake.
-type ruleKeyUsageNoDigitalSignature struct{}
+// This is what PLAN §8.5 calls TLS_KEY_USAGE_INCONSISTENT: the
+// KeyUsage set does not match the algorithm's requirements (RSA used
+// as TLS 1.3 signature key without digitalSignature, etc.).
+type ruleKeyUsageNoDigitalSignature struct{ ruleSpec }
 
-func (ruleKeyUsageNoDigitalSignature) ID() string { return "TLS_KEY_USAGE_NO_DIGSIG" }
+func newRuleKeyUsageNoDigitalSignature() ruleKeyUsageNoDigitalSignature {
+	return ruleKeyUsageNoDigitalSignature{ruleSpec{
+		id:          "TLS_KEY_USAGE_INCONSISTENT",
+		severity:    SeverityHigh,
+		category:    "extensions",
+		title:       "Leaf certificate is missing digitalSignature KeyUsage",
+		remediation: "Reissue the certificate with digitalSignature in KeyUsage.",
+	}}
+}
 
 func (r ruleKeyUsageNoDigitalSignature) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -61,9 +80,17 @@ func (r ruleKeyUsageNoDigitalSignature) Evaluate(c *EvalContext) []Finding {
 // ruleEKUMissingServerAuth flags leaves whose ExtKeyUsage does not
 // include serverAuth. Critical because the certificate is not
 // authorised to act as a TLS server.
-type ruleEKUMissingServerAuth struct{}
+type ruleEKUMissingServerAuth struct{ ruleSpec }
 
-func (ruleEKUMissingServerAuth) ID() string { return "TLS_EKU_MISSING_SERVER_AUTH" }
+func newRuleEKUMissingServerAuth() ruleEKUMissingServerAuth {
+	return ruleEKUMissingServerAuth{ruleSpec{
+		id:          "TLS_EKU_MISSING_SERVER_AUTH",
+		severity:    SeverityCritical,
+		category:    "extensions",
+		title:       "Certificate does not declare serverAuth EKU",
+		remediation: "Reissue the certificate with serverAuth in ExtKeyUsage.",
+	}}
+}
 
 func (r ruleEKUMissingServerAuth) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -94,9 +121,17 @@ func (r ruleEKUMissingServerAuth) Evaluate(c *EvalContext) []Finding {
 
 // ruleEKUOverlyBroad flags leaves that carry ExtKeyUsageAny. Low
 // severity — usually benign but defeats the purpose of EKU scoping.
-type ruleEKUOverlyBroad struct{}
+type ruleEKUOverlyBroad struct{ ruleSpec }
 
-func (ruleEKUOverlyBroad) ID() string { return "TLS_EKU_OVERLY_BROAD" }
+func newRuleEKUOverlyBroad() ruleEKUOverlyBroad {
+	return ruleEKUOverlyBroad{ruleSpec{
+		id:          "TLS_EKU_OVERLY_BROAD",
+		severity:    SeverityLow,
+		category:    "extensions",
+		title:       "Certificate uses ExtKeyUsageAny",
+		remediation: "Reissue with a specific set of ExtKeyUsage values (serverAuth for a TLS leaf).",
+	}}
+}
 
 func (r ruleEKUOverlyBroad) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -125,9 +160,20 @@ func (r ruleEKUOverlyBroad) Evaluate(c *EvalContext) []Finding {
 // status_request TLS Feature (must-staple) but the server did not
 // return a stapled OCSP response. Critical because conforming clients
 // MUST reject the connection.
-type ruleMustStapleWithoutStaple struct{}
+type ruleMustStapleWithoutStaple struct{ ruleSpec }
 
-func (ruleMustStapleWithoutStaple) ID() string { return "TLS_MUST_STAPLE_WITHOUT_STAPLE" }
+func newRuleMustStapleWithoutStaple() ruleMustStapleWithoutStaple {
+	return ruleMustStapleWithoutStaple{ruleSpec{
+		id:       "TLS_MUST_STAPLE_WITHOUT_STAPLE",
+		severity: SeverityCritical,
+		category: "revocation",
+		title:    "Certificate requires OCSP stapling but server does not staple",
+		remediation: "Either enable OCSP stapling on the server " +
+			"(nginx: ssl_stapling on; ssl_stapling_verify on; with a valid " +
+			"ssl_trusted_certificate) or reissue the certificate without the " +
+			"must-staple extension.",
+	}}
+}
 
 func (r ruleMustStapleWithoutStaple) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || !hasMustStapleExtension(c.Leaf) {
@@ -162,9 +208,17 @@ func (r ruleMustStapleWithoutStaple) Evaluate(c *EvalContext) []Finding {
 
 // ruleOCSPStapleExpired fires when a stapled OCSP response has
 // already passed its NextUpdate.
-type ruleOCSPStapleExpired struct{}
+type ruleOCSPStapleExpired struct{ ruleSpec }
 
-func (ruleOCSPStapleExpired) ID() string { return "TLS_OCSP_STAPLE_EXPIRED" }
+func newRuleOCSPStapleExpired() ruleOCSPStapleExpired {
+	return ruleOCSPStapleExpired{ruleSpec{
+		id:          "TLS_OCSP_STAPLE_EXPIRED",
+		severity:    SeverityHigh,
+		category:    "revocation",
+		title:       "Stapled OCSP response is expired",
+		remediation: "Refresh the OCSP staple more frequently (e.g. via the certbot renew-hook or via nginx ssl_stapling with a short refresh interval).",
+	}}
+}
 
 func (r ruleOCSPStapleExpired) Evaluate(c *EvalContext) []Finding {
 	if c.OCSP == nil || !c.OCSP.Stapled || !c.OCSP.StapleExpired {
@@ -188,9 +242,17 @@ func (r ruleOCSPStapleExpired) Evaluate(c *EvalContext) []Finding {
 // ruleOCSPStapleStale fires when a stapled OCSP response's ThisUpdate
 // is older than three days. Medium severity: not expired but the
 // server is slow to refresh.
-type ruleOCSPStapleStale struct{}
+type ruleOCSPStapleStale struct{ ruleSpec }
 
-func (ruleOCSPStapleStale) ID() string { return "TLS_OCSP_STAPLE_STALE" }
+func newRuleOCSPStapleStale() ruleOCSPStapleStale {
+	return ruleOCSPStapleStale{ruleSpec{
+		id:          "TLS_OCSP_STAPLE_STALE",
+		severity:    SeverityMedium,
+		category:    "revocation",
+		title:       "Stapled OCSP response is stale",
+		remediation: "Configure the server to refresh the OCSP staple at least daily. ACME clients typically trigger a refresh on each renewal.",
+	}}
+}
 
 func (r ruleOCSPStapleStale) Evaluate(c *EvalContext) []Finding {
 	if c.OCSP == nil || !c.OCSP.Stapled {
@@ -219,9 +281,17 @@ func (r ruleOCSPStapleStale) Evaluate(c *EvalContext) []Finding {
 
 // ruleOCSPStapleInvalidSig fires when the stapled response signature
 // is invalid. High severity: the response should be ignored.
-type ruleOCSPStapleInvalidSig struct{}
+type ruleOCSPStapleInvalidSig struct{ ruleSpec }
 
-func (ruleOCSPStapleInvalidSig) ID() string { return "TLS_OCSP_STAPLE_INVALID_SIG" }
+func newRuleOCSPStapleInvalidSig() ruleOCSPStapleInvalidSig {
+	return ruleOCSPStapleInvalidSig{ruleSpec{
+		id:          "TLS_OCSP_STAPLE_INVALID_SIG",
+		severity:    SeverityHigh,
+		category:    "revocation",
+		title:       "Stapled OCSP response has an invalid signature",
+		remediation: "Investigate why the OCSP responder signed with an unexpected issuer. Possible causes: rotated issuer certificate without re-deployment, or the server is presenting a stale staple cached against an old issuer.",
+	}}
+}
 
 func (r ruleOCSPStapleInvalidSig) Evaluate(c *EvalContext) []Finding {
 	if c.OCSP == nil || c.OCSP.StapleSigValid == nil || *c.OCSP.StapleSigValid {
@@ -245,9 +315,17 @@ func (r ruleOCSPStapleInvalidSig) Evaluate(c *EvalContext) []Finding {
 // ruleCertRevoked fires when the stapled OCSP response reports the
 // leaf certificate as revoked. Critical: every client should reject
 // the connection.
-type ruleCertRevoked struct{}
+type ruleCertRevoked struct{ ruleSpec }
 
-func (ruleCertRevoked) ID() string { return "TLS_CERT_REVOKED" }
+func newRuleCertRevoked() ruleCertRevoked {
+	return ruleCertRevoked{ruleSpec{
+		id:          "TLS_CERT_REVOKED",
+		severity:    SeverityCritical,
+		category:    "revocation",
+		title:       "Leaf certificate has been revoked",
+		remediation: "Replace the certificate immediately. Investigate the revocation reason (key compromise, cessation of operation, etc.) and ensure the replacement follows the appropriate CA workflow.",
+	}}
+}
 
 func (r ruleCertRevoked) Evaluate(c *EvalContext) []Finding {
 	if c.OCSP == nil || c.OCSP.StapleStatus != "revoked" {

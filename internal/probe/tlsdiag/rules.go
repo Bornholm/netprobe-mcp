@@ -26,11 +26,50 @@ type EvalContext struct {
 	Config              Config
 }
 
+// RuleMeta is the static, language-independent metadata of a Rule.
+// It is exposed via the MCP findings catalogue so an LLM can resolve
+// a finding ID without having to trigger the diagnostic. Every rule
+// exposes its metadata via the Metadata() method.
+type RuleMeta struct {
+	ID          string
+	Severity    Severity
+	Category    string
+	Title       string
+	Remediation string
+}
+
 // Rule is a single TLS diagnostic rule. Each rule is pure, side-effect
 // free and independent: easy to test, easy to disable, easy to add.
 type Rule interface {
 	ID() string
+	Metadata() RuleMeta
 	Evaluate(*EvalContext) []Finding
+}
+
+// ruleSpec is a reusable base for plain rules: it carries the static
+// metadata (id, severity, category, title, remediation) and provides
+// ID() and Metadata(). Concrete rule types embed ruleSpec and only
+// implement Evaluate. This avoids duplicating metadata across the
+// 40+ rules in this package and is the single source of truth for
+// the MCP findings catalogue.
+type ruleSpec struct {
+	id          string
+	severity    Severity
+	category    string
+	title       string
+	remediation string
+}
+
+func (s ruleSpec) ID() string { return s.id }
+
+func (s ruleSpec) Metadata() RuleMeta {
+	return RuleMeta{
+		ID:          s.id,
+		Severity:    s.severity,
+		Category:    s.category,
+		Title:       s.title,
+		Remediation: s.remediation,
+	}
 }
 
 // DefaultRules returns the catalogue shipped with v1. The order matches
@@ -38,75 +77,82 @@ type Rule interface {
 // is preserved when sorting findings by severity in the report.
 func DefaultRules() []Rule {
 	return []Rule{
-		ruleCertExpired{},
-		ruleCertNotYetValid{},
-		ruleCertExpiringCritical{},
-		ruleCertExpiringSoon{},
-		ruleValidityTooLong{},
-		ruleValidityExcessive{},
+		newRuleCertExpired(),
+		newRuleCertNotYetValid(),
+		newRuleCertExpiringCritical(),
+		newRuleCertExpiringSoon(),
+		newRuleValidityTooLong(),
+		newRuleValidityExcessive(),
 
-		ruleChainIncomplete{},
-		ruleChainMissingIntermediate{},
-		ruleChainMisordered{},
-		ruleChainRootIncluded{},
-		ruleChainExtraneous{},
-		ruleSelfSigned{},
-		ruleUntrustedRoot{},
+		newRuleChainIncomplete(),
+		newRuleChainMissingIntermediate(),
+		newRuleChainMisordered(),
+		newRuleChainRootIncluded(),
+		newRuleChainExtraneous(),
+		newRuleChainCertExpired(),
+		newRuleSelfSigned(),
+		newRuleUntrustedRoot(),
 
-		ruleHostnameMismatch{},
-		ruleNoSAN{},
-		ruleCNOnlyIdentity{},
-		ruleWildcardScope{},
+		newRuleHostnameMismatch(),
+		newRuleNoSAN(),
+		newRuleCNOnlyIdentity(),
+		newRuleWildcardScope(),
 
-		ruleWeakSignature{},
-		ruleWeakRSAKey{},
-		ruleSuboptimalRSAKey{},
-		ruleWeakECCurve{},
-		ruleCACertUsedAsLeaf{},
+		newRuleNoSCT(),
 
-		ruleKeyUsageMissing{},
-		ruleKeyUsageNoDigitalSignature{},
-		ruleEKUMissingServerAuth{},
-		ruleEKUOverlyBroad{},
+		newRuleWeakSignature(),
+		newRuleWeakRSAKey(),
+		newRuleSuboptimalRSAKey(),
+		newRuleWeakECCurve(),
+		newRuleCACertUsedAsLeaf(),
 
-		ruleMustStapleWithoutStaple{},
-		ruleOCSPStapleExpired{},
-		ruleOCSPStapleStale{},
-		ruleOCSPStapleInvalidSig{},
-		ruleCertRevoked{},
+		newRuleKeyUsageMissing(),
+		newRuleKeyUsageNoDigitalSignature(),
+		newRuleEKUMissingServerAuth(),
+		newRuleEKUOverlyBroad(),
 
-		ruleLeafNotFirst{},
-		ruleDuplicateCertInChain{},
+		newRuleNoAIAOCSP(),
+		newRuleMustStapleWithoutStaple(),
+		newRuleOCSPNotStapled(),
+		newRuleOCSPStapleExpired(),
+		newRuleOCSPStapleStale(),
+		newRuleOCSPStapleInvalidSig(),
+		newRuleCertRevoked(),
+
+		newRuleLeafNotFirst(),
+		newRuleDuplicateCertInChain(),
 
 		// Active-phase rules — depend on ProbeProtocols /
 		// ProbeCipherSuites / CheckHSTS / StartTLS phases being
 		// executed. Each returns nil when the corresponding phase
 		// was not run.
-		ruleTLS10Enabled{},
-		ruleTLS11Enabled{},
-		ruleNoTLS12{},
-		ruleNoTLS13{},
+		newRuleTLS10Enabled(),
+		newRuleTLS11Enabled(),
+		newRuleNoTLS12(),
+		newRuleNoTLS13(),
 
-		ruleWeakCipher3DES{},
-		ruleWeakCipherCBCSHA1{},
-		ruleNoForwardSecrecy{},
+		newRuleWeakCipher3DES(),
+		newRuleWeakCipherCBCSHA1(),
+		newRuleNoForwardSecrecy(),
+		newRuleAnonCipher(),
 
-		ruleHSTSMissing{},
-		ruleHSTSShortMaxAge{},
-		ruleHSTSOnHTTP{},
-		ruleHTTPNoRedirect{},
+		newRuleHSTSMissing(),
+		newRuleHSTSShortMaxAge(),
+		newRuleHSTSOnHTTP(),
+		newRuleHTTPNoRedirect(),
 
-		ruleStartTLSNotOffered{},
+		newRuleStartTLSNotOffered(),
 
-		ruleSNIDefaultMismatch{},
+		newRuleSNIDefaultMismatch(),
+		newRuleSNIRequired(),
 
 		// Raw-ClientHello rules: depend on ProbeWeakCiphers. Each
 		// rule consumes a corresponding entry from
 		// rep.WeakCiphersAccepted and emits a Finding.
-		ruleWeakCipherRC4{},
-		ruleWeakCipherNULL{},
-		ruleWeakCipherEXPORT{},
-		ruleSSLV3Enabled{},
+		newRuleWeakCipherRC4(),
+		newRuleWeakCipherNULL(),
+		newRuleWeakCipherEXPORT(),
+		newRuleSSLV3Enabled(),
 	}
 }
 

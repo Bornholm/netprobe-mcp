@@ -6,9 +6,17 @@ import "crypto/x509"
 // is not plausibly a leaf (no DNSNames, IPAddresses, URIs, or
 // EmailAddresses). High severity: clients should always present the
 // leaf first.
-type ruleLeafNotFirst struct{}
+type ruleLeafNotFirst struct{ ruleSpec }
 
-func (ruleLeafNotFirst) ID() string { return "TLS_LEAF_NOT_FIRST" }
+func newRuleLeafNotFirst() ruleLeafNotFirst {
+	return ruleLeafNotFirst{ruleSpec{
+		id:          "TLS_LEAF_NOT_FIRST",
+		severity:    SeverityHigh,
+		category:    "consistency",
+		title:       "First certificate in the chain is not a leaf",
+		remediation: "Inspect the server's TLS configuration and ensure the leaf certificate (the one bound to the hostname) is presented first.",
+	}}
+}
 
 func (r ruleLeafNotFirst) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || len(c.Chain) < 2 {
@@ -36,9 +44,17 @@ func (r ruleLeafNotFirst) Evaluate(c *EvalContext) []Finding {
 
 // ruleDuplicateCertInChain flags chains where the same certificate
 // subject appears more than once. Low severity: harmless but wasteful.
-type ruleDuplicateCertInChain struct{}
+type ruleDuplicateCertInChain struct{ ruleSpec }
 
-func (ruleDuplicateCertInChain) ID() string { return "TLS_DUPLICATE_CERT_IN_CHAIN" }
+func newRuleDuplicateCertInChain() ruleDuplicateCertInChain {
+	return ruleDuplicateCertInChain{ruleSpec{
+		id:          "TLS_DUPLICATE_CERT_IN_CHAIN",
+		severity:    SeverityLow,
+		category:    "consistency",
+		title:       "Duplicate certificate in the chain",
+		remediation: "Re-export the chain bundle, removing duplicates.",
+	}}
+}
 
 func (r ruleDuplicateCertInChain) Evaluate(c *EvalContext) []Finding {
 	dups := findDuplicate(c.Chain)

@@ -12,7 +12,7 @@ func ptrBool(v bool) *bool { return &v }
 
 func TestRuleTLS10Enabled(t *testing.T) {
 	rep := &Report{}
-	r := ruleTLS10Enabled{}
+	r := newRuleTLS10Enabled()
 	if got := r.Evaluate(&EvalContext{Protocols: &ProtocolSupport{TLS10: TriYes}}); len(got) != 1 {
 		t.Errorf("expected 1 finding, got %d", len(got))
 	} else if got[0].ID != "TLS_TLS10_ENABLED" {
@@ -69,7 +69,7 @@ func TestRuleWeakCipherCBCSHA1(t *testing.T) {
 }
 
 func TestRuleNoForwardSecrecy(t *testing.T) {
-	r := ruleNoForwardSecrecy{}
+	r := newRuleNoForwardSecrecy()
 	if got := r.Evaluate(&EvalContext{Ciphers: &CipherSuiteReport{ForwardSecrecy: false}}); len(got) != 1 {
 		t.Errorf("expected 1 finding when no FS")
 	}
@@ -79,7 +79,7 @@ func TestRuleNoForwardSecrecy(t *testing.T) {
 }
 
 func TestRuleHSTSMissing(t *testing.T) {
-	r := ruleHSTSMissing{}
+	r := newRuleHSTSMissing()
 	if got := r.Evaluate(&EvalContext{HSTS: &HSTSReport{}}); len(got) != 1 {
 		t.Errorf("expected 1 finding when no HSTS header")
 	}
@@ -89,21 +89,21 @@ func TestRuleHSTSMissing(t *testing.T) {
 }
 
 func TestRuleHSTSShortMaxAge(t *testing.T) {
-	r := ruleHSTSShortMaxAge{}
+	r := newRuleHSTSShortMaxAge()
 	if got := r.Evaluate(&EvalContext{HSTS: &HSTSReport{HSTSShortMaxAge: true}}); len(got) != 1 {
 		t.Errorf("expected 1 finding")
 	}
 }
 
 func TestRuleHSTSOnHTTP(t *testing.T) {
-	r := ruleHSTSOnHTTP{}
+	r := newRuleHSTSOnHTTP()
 	if got := r.Evaluate(&EvalContext{HSTS: &HSTSReport{HSTSOnHTTP: true}}); len(got) != 1 {
 		t.Errorf("expected 1 finding")
 	}
 }
 
 func TestRuleHTTPNoRedirect(t *testing.T) {
-	r := ruleHTTPNoRedirect{}
+	r := newRuleHTTPNoRedirect()
 	if got := r.Evaluate(&EvalContext{HSTS: &HSTSReport{HTTPSRedirect: false}}); len(got) != 1 {
 		t.Errorf("expected 1 finding")
 	}
@@ -113,7 +113,7 @@ func TestRuleHTTPNoRedirect(t *testing.T) {
 }
 
 func TestRuleStartTLSNotOffered(t *testing.T) {
-	r := ruleStartTLSNotOffered{}
+	r := newRuleStartTLSNotOffered()
 	if got := r.Evaluate(&EvalContext{StartTLS: &StartTLSReport{UpgradeSucceeded: true}}); len(got) != 0 {
 		t.Errorf("expected 0 findings when upgrade succeeded")
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bornholm/netprobe-mcp/internal/config"
+	"github.com/bornholm/netprobe-mcp/internal/probe/tlsdiag"
 )
 
 func newServerWithConfig(t *testing.T, cfg *config.Config) *Server {
@@ -214,5 +215,93 @@ func TestResources_FindingsNotRegisteredWhenTLSDisabled(t *testing.T) {
 	}
 	if !strings.Contains(cfg.Server.Name, "") {
 		// anchor: keep import strings alive
+	}
+}
+
+// TestFindingsCatalog_MatchesRuleRegistry is the regression test for
+// PLAN §13.17: the findings catalogue MUST be the union of every
+// rule in DefaultRules() and every check in AlwaysSkipped(). A
+// catalogue entry that points to no rule would be a "ghost finding"
+// — the agent would believe a check is active when nothing in the
+// codebase ever emits it. Conversely, a rule whose ID does not
+// appear in the catalogue would be undocumented.
+//
+// The test also asserts no duplicate IDs in the catalogue.
+func TestFindingsCatalog_MatchesRuleRegistry(t *testing.T) {
+	cfg := &config.Config{Probes: config.ProbesConfig{TLS: config.TLSDiagConfig{Enabled: true}}}
+	s := &Server{cfg: cfg}
+	cat := s.findingsCatalog()
+	if len(cat) == 0 {
+		t.Fatal("catalogue is empty")
+	}
+
+	// Collect the IDs the rules actually emit.
+	ruleIDs := map[string]bool{}
+	for _, r := range tlsdiag.DefaultRules() {
+		id := r.Metadata().ID
+		if id == "" {
+			continue
+		}
+		if ruleIDs[id] {
+			t.Errorf("rule registry contains duplicate ID %q", id)
+		}
+		ruleIDs[id] = true
+	}
+
+	// Collect the IDs the always-skipped list declares.
+	skippedIDs := map[string]bool{}
+	for _, s := range tlsdiag.AlwaysSkipped() {
+		skippedIDs[s.Check] = true
+	}
+
+	// The catalogue must cover both sets, and contain nothing else.
+	catIDs := map[string]bool{}
+	for _, c := range cat {
+		if catIDs[c.ID] {
+			t.Errorf("catalogue contains duplicate ID %q", c.ID)
+		}
+		catIDs[c.ID] = true
+
+		if !ruleIDs[c.ID] && !skippedIDs[c.ID] {
+			t.Errorf("catalogue entry %q matches no rule and no skipped check", c.ID)
+		}
+		// Note: an ID can appear in both DefaultRules() and
+		// AlwaysSkipped() (e.g. TLS_WEAK_CIPHER_RC4 is unreachable
+		// with crypto/tls but the raw-ClientHello probe can emit
+		// it). The catalogue lists it once with the active rule's
+		// severity.
+	}
+
+	// Every rule MUST be documented.
+	for id := range ruleIDs {
+		if !catIDs[id] {
+			t.Errorf("rule %q is not in the catalogue — agent cannot interpret it", id)
+		}
+	}
+	// Every skipped check MUST be documented (with severity=disabled).
+	for id := range skippedIDs {
+		if !catIDs[id] {
+			t.Errorf("skipped check %q is not in the catalogue", id)
+		}
+	}
+
+	// Active rules must carry a non-empty severity that is one of
+	// the known Severity constants. Skipped checks use the
+	// "disabled" sentinel.
+	for _, c := range cat {
+		switch c.Severity {
+		case string(tlsdiag.SeverityCritical),
+			string(tlsdiag.SeverityHigh),
+			string(tlsdiag.SeverityMedium),
+			string(tlsdiag.SeverityLow),
+			string(tlsdiag.SeverityInfo),
+			"disabled":
+			// OK
+		default:
+			t.Errorf("catalogue entry %q has unknown severity %q", c.ID, c.Severity)
+		}
+		if c.Title == "" {
+			t.Errorf("catalogue entry %q has empty title", c.ID)
+		}
 	}
 }

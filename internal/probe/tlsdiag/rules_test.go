@@ -115,7 +115,7 @@ func TestRuleCertExpired(t *testing.T) {
 		c.NotAfter = now.Add(-time.Hour)
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	r := ruleCertExpired{}
+	r := newRuleCertExpired()
 	findings := r.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_CERT_EXPIRED" {
 		t.Fatalf("expected TLS_CERT_EXPIRED, got %+v", findings)
@@ -128,7 +128,7 @@ func TestRuleCertNotYetValid(t *testing.T) {
 		c.NotBefore = now.Add(time.Hour)
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleCertNotYetValid{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleCertNotYetValid().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_CERT_NOT_YET_VALID" {
 		t.Fatalf("expected TLS_CERT_NOT_YET_VALID, got %+v", findings)
 	}
@@ -140,7 +140,7 @@ func TestRuleCertExpiringCritical(t *testing.T) {
 		c.NotAfter = now.Add(3 * 24 * time.Hour)
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleCertExpiringCritical{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleCertExpiringCritical().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_CERT_EXPIRING_CRITICAL" {
 		t.Fatalf("expected TLS_CERT_EXPIRING_CRITICAL, got %+v", findings)
 	}
@@ -152,7 +152,7 @@ func TestRuleCertExpiringSoon(t *testing.T) {
 		c.NotAfter = now.Add(15 * 24 * time.Hour)
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleCertExpiringSoon{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleCertExpiringSoon().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_CERT_EXPIRING_SOON" {
 		t.Fatalf("expected TLS_CERT_EXPIRING_SOON, got %+v", findings)
 	}
@@ -164,7 +164,7 @@ func TestRuleCertExpiringSoon_NotTriggered(t *testing.T) {
 		c.NotAfter = now.Add(60 * 24 * time.Hour)
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleCertExpiringSoon{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleCertExpiringSoon().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %+v", findings)
 	}
@@ -176,7 +176,7 @@ func TestRuleValidityTooLong(t *testing.T) {
 		c.NotAfter = now.Add(500 * 24 * time.Hour) // 500 days
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleValidityTooLong{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleValidityTooLong().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_VALIDITY_TOO_LONG" {
 		t.Fatalf("expected TLS_VALIDITY_TOO_LONG, got %+v", findings)
 	}
@@ -188,7 +188,7 @@ func TestRuleValidityExcessive(t *testing.T) {
 		c.NotAfter = now.Add(900 * 24 * time.Hour) // 900 days
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleValidityExcessive{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleValidityExcessive().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_VALIDITY_EXCESSIVE" {
 		t.Fatalf("expected TLS_VALIDITY_EXCESSIVE, got %+v", findings)
 	}
@@ -198,7 +198,7 @@ func TestRuleValidityExcessive(t *testing.T) {
 
 func TestRuleHostnameMismatch(t *testing.T) {
 	leaf, _, _, _ := buildChain(t, nil)
-	findings := ruleHostnameMismatch{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Hostname: "evil.example.org", Config: defaultConfig()})
+	findings := newRuleHostnameMismatch().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Hostname: "evil.example.org", Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_HOSTNAME_MISMATCH" {
 		t.Fatalf("expected TLS_HOSTNAME_MISMATCH, got %+v", findings)
 	}
@@ -212,7 +212,7 @@ func TestRuleNoSAN(t *testing.T) {
 		c.EmailAddresses = nil
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleNoSAN{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleNoSAN().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_NO_SAN" {
 		t.Fatalf("expected TLS_NO_SAN, got %+v", findings)
 	}
@@ -225,7 +225,7 @@ func TestRuleCNOnlyIdentity(t *testing.T) {
 		c.Subject.CommonName = "fallback.example.com"
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleCNOnlyIdentity{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleCNOnlyIdentity().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_CN_ONLY_IDENTITY" {
 		t.Fatalf("expected TLS_CN_ONLY_IDENTITY, got %+v", findings)
 	}
@@ -236,7 +236,7 @@ func TestRuleWildcardScope_PublicSuffix(t *testing.T) {
 		c.DNSNames = []string{"*.com"}
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleWildcardScope{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleWildcardScope().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_WILDCARD_TOO_BROAD" {
 		t.Fatalf("expected TLS_WILDCARD_TOO_BROAD, got %+v", findings)
 	}
@@ -250,7 +250,7 @@ func TestRuleWildcardScope_BroadDomain(t *testing.T) {
 		c.DNSNames = []string{"*.example.com"}
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleWildcardScope{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleWildcardScope().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_WILDCARD_TOO_BROAD" {
 		t.Fatalf("expected TLS_WILDCARD_TOO_BROAD, got %+v", findings)
 	}
@@ -268,7 +268,7 @@ func TestRuleWeakRSAKey(t *testing.T) {
 		c.NotAfter = now.Add(90 * 24 * time.Hour)
 	}
 	leaf, _, _, _ := buildChainWithRSA(t, 1024, mut)
-	findings := ruleWeakRSAKey{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleWeakRSAKey().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_WEAK_RSA_KEY" {
 		t.Fatalf("expected TLS_WEAK_RSA_KEY, got %+v", findings)
 	}
@@ -281,7 +281,7 @@ func TestRuleSuboptimalRSAKey(t *testing.T) {
 		c.NotAfter = now.Add(90 * 24 * time.Hour)
 	}
 	leaf, _, _, _ := buildChainWithRSA(t, 2048, mut)
-	findings := ruleSuboptimalRSAKey{}.Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleSuboptimalRSAKey().Evaluate(&EvalContext{Now: now, Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_SUBOPTIMAL_RSA_KEY" {
 		t.Fatalf("expected TLS_SUBOPTIMAL_RSA_KEY, got %+v", findings)
 	}
@@ -292,7 +292,7 @@ func TestRuleWeakECCurve(t *testing.T) {
 		c.DNSNames = []string{"leaf.example.com"}
 	}
 	leaf, _, _, _ := buildChainWithP224(t, mut)
-	findings := ruleWeakECCurve{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleWeakECCurve().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_WEAK_EC_CURVE" {
 		t.Fatalf("expected TLS_WEAK_EC_CURVE, got %+v", findings)
 	}
@@ -303,7 +303,7 @@ func TestRuleCACertUsedAsLeaf(t *testing.T) {
 		c.IsCA = true
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleCACertUsedAsLeaf{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleCACertUsedAsLeaf().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_CA_CERT_USED_AS_LEAF" {
 		t.Fatalf("expected TLS_CA_CERT_USED_AS_LEAF, got %+v", findings)
 	}
@@ -316,7 +316,7 @@ func TestRuleKeyUsageMissing(t *testing.T) {
 		c.KeyUsage = 0
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleKeyUsageMissing{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleKeyUsageMissing().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_KEY_USAGE_MISSING" {
 		t.Fatalf("expected TLS_KEY_USAGE_MISSING, got %+v", findings)
 	}
@@ -327,9 +327,9 @@ func TestRuleKeyUsageNoDigitalSignature(t *testing.T) {
 		c.KeyUsage = x509.KeyUsageKeyEncipherment
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleKeyUsageNoDigitalSignature{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
-	if len(findings) != 1 || findings[0].ID != "TLS_KEY_USAGE_NO_DIGSIG" {
-		t.Fatalf("expected TLS_KEY_USAGE_NO_DIGSIG, got %+v", findings)
+	findings := newRuleKeyUsageNoDigitalSignature().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	if len(findings) != 1 || findings[0].ID != "TLS_KEY_USAGE_INCONSISTENT" {
+		t.Fatalf("expected TLS_KEY_USAGE_INCONSISTENT, got %+v", findings)
 	}
 }
 
@@ -338,7 +338,7 @@ func TestRuleEKUMissingServerAuth(t *testing.T) {
 		c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleEKUMissingServerAuth{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleEKUMissingServerAuth().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_EKU_MISSING_SERVER_AUTH" {
 		t.Fatalf("expected TLS_EKU_MISSING_SERVER_AUTH, got %+v", findings)
 	}
@@ -349,7 +349,7 @@ func TestRuleEKUOverlyBroad(t *testing.T) {
 		c.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageAny}
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleEKUOverlyBroad{}.Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
+	findings := newRuleEKUOverlyBroad().Evaluate(&EvalContext{Now: testClock(), Leaf: leaf, Config: defaultConfig()})
 	if len(findings) != 1 || findings[0].ID != "TLS_EKU_OVERLY_BROAD" {
 		t.Fatalf("expected TLS_EKU_OVERLY_BROAD, got %+v", findings)
 	}
@@ -363,7 +363,7 @@ func TestRuleMustStapleWithoutStaple(t *testing.T) {
 		}}
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleMustStapleWithoutStaple{}.Evaluate(&EvalContext{
+	findings := newRuleMustStapleWithoutStaple().Evaluate(&EvalContext{
 		Now:    testClock(),
 		Leaf:   leaf,
 		OCSP:   nil, // no staple
@@ -382,7 +382,7 @@ func TestRuleMustStapleWithStaple(t *testing.T) {
 		}}
 	}
 	leaf, _, _, _ := buildChain(t, mut)
-	findings := ruleMustStapleWithoutStaple{}.Evaluate(&EvalContext{
+	findings := newRuleMustStapleWithoutStaple().Evaluate(&EvalContext{
 		Now:    testClock(),
 		Leaf:   leaf,
 		OCSP:   &OCSPReport{Stapled: true, StapleStatus: "good"},
@@ -396,7 +396,7 @@ func TestRuleMustStapleWithStaple(t *testing.T) {
 func TestRuleOCSPStapleExpired(t *testing.T) {
 	now := testClock()
 	next := now.Add(-time.Hour)
-	findings := ruleOCSPStapleExpired{}.Evaluate(&EvalContext{
+	findings := newRuleOCSPStapleExpired().Evaluate(&EvalContext{
 		Now:    now,
 		OCSP:   &OCSPReport{Stapled: true, StapleExpired: true, StapleNextUpdate: &next},
 		Config: defaultConfig(),
@@ -408,7 +408,7 @@ func TestRuleOCSPStapleExpired(t *testing.T) {
 
 func TestRuleOCSPStapleStale(t *testing.T) {
 	now := testClock()
-	findings := ruleOCSPStapleStale{}.Evaluate(&EvalContext{
+	findings := newRuleOCSPStapleStale().Evaluate(&EvalContext{
 		Now:    now,
 		OCSP:   &OCSPReport{Stapled: true, StapleAgeHours: 100},
 		Config: defaultConfig(),
@@ -419,7 +419,7 @@ func TestRuleOCSPStapleStale(t *testing.T) {
 }
 
 func TestRuleOCSPStapleInvalidSig(t *testing.T) {
-	findings := ruleOCSPStapleInvalidSig{}.Evaluate(&EvalContext{
+	findings := newRuleOCSPStapleInvalidSig().Evaluate(&EvalContext{
 		Now:    testClock(),
 		OCSP:   &OCSPReport{Stapled: true, StapleSigValid: ptr(false)},
 		Config: defaultConfig(),
@@ -431,7 +431,7 @@ func TestRuleOCSPStapleInvalidSig(t *testing.T) {
 
 func TestRuleCertRevoked(t *testing.T) {
 	revokedAt := testClock()
-	findings := ruleCertRevoked{}.Evaluate(&EvalContext{
+	findings := newRuleCertRevoked().Evaluate(&EvalContext{
 		Now:    testClock(),
 		OCSP:   &OCSPReport{Stapled: true, StapleStatus: "revoked", RevokedAt: &revokedAt, RevocationReason: "key_compromise"},
 		Config: defaultConfig(),
@@ -451,7 +451,7 @@ func TestRuleLeafNotFirst(t *testing.T) {
 		c.EmailAddresses = nil
 	}
 	leaf, inter, _, _ := buildChain(t, mut)
-	findings := ruleLeafNotFirst{}.Evaluate(&EvalContext{
+	findings := newRuleLeafNotFirst().Evaluate(&EvalContext{
 		Now:    testClock(),
 		Leaf:   leaf,
 		Chain:  []*x509.Certificate{leaf, inter},
@@ -464,7 +464,7 @@ func TestRuleLeafNotFirst(t *testing.T) {
 
 func TestRuleDuplicateCertInChain(t *testing.T) {
 	leaf, inter, _, _ := buildChain(t, nil)
-	findings := ruleDuplicateCertInChain{}.Evaluate(&EvalContext{
+	findings := newRuleDuplicateCertInChain().Evaluate(&EvalContext{
 		Now:    testClock(),
 		Leaf:   leaf,
 		Chain:  []*x509.Certificate{leaf, inter, leaf},
@@ -491,4 +491,167 @@ func defaultConfig() Config {
 func mustStapleOID() asn1.ObjectIdentifier {
 	// 1.3.6.1.5.5.7.1.24 (id-pe-tlsfeature)
 	return asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 24}
+}
+
+// --- Phase 2.2 rule tests ---
+
+func TestRuleNoAIAOCSP(t *testing.T) {
+	leaf, _, _, _ := buildChain(t, nil)
+	// buildChain returns a leaf with no OCSPServer URLs.
+	findings := newRuleNoAIAOCSP().Evaluate(&EvalContext{
+		Now: testClock(), Leaf: leaf, Config: defaultConfig(),
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_NO_AIA_OCSP" {
+		t.Fatalf("expected TLS_NO_AIA_OCSP, got %+v", findings)
+	}
+}
+
+func TestRuleNoAIAOCSP_NotTriggeredWhenPresent(t *testing.T) {
+	leaf, _, _, _ := buildChain(t, func(c *x509.Certificate) {
+		c.OCSPServer = []string{"http://ocsp.example.com"}
+	})
+	if got := newRuleNoAIAOCSP().Evaluate(&EvalContext{
+		Now: testClock(), Leaf: leaf, Config: defaultConfig(),
+	}); got != nil {
+		t.Errorf("expected no finding when OCSP responder is advertised, got %+v", got)
+	}
+}
+
+func TestRuleOCSPNotStapled(t *testing.T) {
+	now := testClock()
+	leaf, _, _, _ := buildChain(t, func(c *x509.Certificate) {
+		c.OCSPServer = []string{"http://ocsp.example.com"}
+	})
+	// OCSP report absent → not stapled.
+	findings := newRuleOCSPNotStapled().Evaluate(&EvalContext{
+		Now: now, Leaf: leaf, OCSP: nil, Config: defaultConfig(),
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_OCSP_NOT_STAPLED" {
+		t.Fatalf("expected TLS_OCSP_NOT_STAPLED, got %+v", findings)
+	}
+}
+
+func TestRuleOCSPNotStapled_NotTriggeredWhenStapled(t *testing.T) {
+	now := testClock()
+	leaf, _, _, _ := buildChain(t, func(c *x509.Certificate) {
+		c.OCSPServer = []string{"http://ocsp.example.com"}
+	})
+	findings := newRuleOCSPNotStapled().Evaluate(&EvalContext{
+		Now: now, Leaf: leaf,
+		OCSP:   &OCSPReport{Stapled: true},
+		Config: defaultConfig(),
+	})
+	if len(findings) != 0 {
+		t.Errorf("expected no finding when stapled, got %+v", findings)
+	}
+}
+
+func TestRuleChainCertExpired(t *testing.T) {
+	now := testClock()
+	// Build a chain, then force the intermediate to be expired.
+	leaf, inter, _, _ := buildChain(t, nil)
+	inter.NotAfter = now.Add(-time.Hour)
+	findings := newRuleChainCertExpired().Evaluate(&EvalContext{
+		Now:   now,
+		Chain: []*x509.Certificate{leaf, inter},
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_CHAIN_CERT_EXPIRED" {
+		t.Fatalf("expected TLS_CHAIN_CERT_EXPIRED, got %+v", findings)
+	}
+}
+
+func TestRuleChainCertExpired_NotTriggered(t *testing.T) {
+	now := testClock()
+	leaf, inter, _, _ := buildChain(t, nil)
+	// Intermediate is fresh.
+	findings := newRuleChainCertExpired().Evaluate(&EvalContext{
+		Now:   now,
+		Chain: []*x509.Certificate{leaf, inter},
+	})
+	if len(findings) != 0 {
+		t.Errorf("expected no finding on fresh chain, got %+v", findings)
+	}
+}
+
+func TestRuleNoSCT(t *testing.T) {
+	leaf, _, _, _ := buildChain(t, nil)
+	if hasSCTExtension(leaf) {
+		t.Skip("test cert happens to carry SCT (unexpected)")
+	}
+	findings := newRuleNoSCT().Evaluate(&EvalContext{
+		Now: testClock(), Leaf: leaf, Config: defaultConfig(),
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_NO_SCT" {
+		t.Fatalf("expected TLS_NO_SCT, got %+v", findings)
+	}
+}
+
+func TestRuleSNIRequired_TriggeredWhenNoSNIHandshakeSucceeds(t *testing.T) {
+	findings := newRuleSNIRequired().Evaluate(&EvalContext{
+		SNI: &SNIReport{
+			NoSNIHandshakeSucceeded: true,
+			NoSNISubject:            "CN=default.example.com",
+			NoSNIFingerprint:        "AA:BB",
+		},
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_SNI_NOT_REQUIRED" {
+		t.Fatalf("expected TLS_SNI_NOT_REQUIRED, got %+v", findings)
+	}
+}
+
+func TestRuleSNIRequired_NotTriggeredWhenNoSNIRejected(t *testing.T) {
+	// Server rejected the no-SNI handshake — that's the GOOD
+	// configuration, no finding.
+	findings := newRuleSNIRequired().Evaluate(&EvalContext{
+		SNI: &SNIReport{NoSNIHandshakeSucceeded: false},
+	})
+	if len(findings) != 0 {
+		t.Errorf("expected no finding, got %+v", findings)
+	}
+}
+
+func TestRuleSNIRequired_NotTriggeredWhenPhaseNotRun(t *testing.T) {
+	findings := newRuleSNIRequired().Evaluate(&EvalContext{SNI: nil})
+	if len(findings) != 0 {
+		t.Errorf("expected no finding when SNI phase did not run, got %+v", findings)
+	}
+}
+
+func TestRuleAnonCipher_Triggered(t *testing.T) {
+	findings := newRuleAnonCipher().Evaluate(&EvalContext{
+		WeakCiphersAccepted: []string{"TLS_ANON_CIPHER"},
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_ANON_CIPHER" {
+		t.Fatalf("expected TLS_ANON_CIPHER, got %+v", findings)
+	}
+}
+
+func TestRuleAnonCipher_NotTriggered(t *testing.T) {
+	findings := newRuleAnonCipher().Evaluate(&EvalContext{})
+	if len(findings) != 0 {
+		t.Errorf("expected no finding, got %+v", findings)
+	}
+}
+
+func TestRuleChainMissingIntermediate_TriggeredOnLeafOnly(t *testing.T) {
+	// Simulate a server that sends only the leaf (no intermediate).
+	// The passive detector flags MissingIntermediate without
+	// requiring AIA chasing — this is the PLAN §8.4 hardening.
+	leaf, _, _, _ := buildChain(t, nil)
+	findings := newRuleChainMissingIntermediate().Evaluate(&EvalContext{
+		ChainRep: ChainReport{MissingIntermediate: true},
+		Leaf:     leaf,
+	})
+	if len(findings) != 1 || findings[0].ID != "TLS_CHAIN_MISSING_INTERMEDIATE" {
+		t.Fatalf("expected TLS_CHAIN_MISSING_INTERMEDIATE, got %+v", findings)
+	}
+}
+
+func TestRuleChainMissingIntermediate_NotTriggeredWhenComplete(t *testing.T) {
+	findings := newRuleChainMissingIntermediate().Evaluate(&EvalContext{
+		ChainRep: ChainReport{MissingIntermediate: false},
+	})
+	if len(findings) != 0 {
+		t.Errorf("expected no finding, got %+v", findings)
+	}
 }

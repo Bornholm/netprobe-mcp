@@ -9,9 +9,17 @@ import (
 
 // ruleWeakSignature flags certificates signed with SHA-1, MD5 or MD2.
 // Critical because these signatures are forgeable in practice.
-type ruleWeakSignature struct{}
+type ruleWeakSignature struct{ ruleSpec }
 
-func (ruleWeakSignature) ID() string { return "TLS_WEAK_SIGNATURE_SHA1" }
+func newRuleWeakSignature() ruleWeakSignature {
+	return ruleWeakSignature{ruleSpec{
+		id:          "TLS_WEAK_SIGNATURE_SHA1",
+		severity:    SeverityCritical,
+		category:    "crypto",
+		title:       "Certificate uses a weak signature algorithm",
+		remediation: "Reissue the certificate with at least SHA-256 (RSA-SHA256, ECDSA-with-SHA256, or RSA-PSS). ACME clients default to SHA-256; the weak algorithm indicates a manual or legacy issuance pipeline.",
+	}}
+}
 
 func (r ruleWeakSignature) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -48,9 +56,17 @@ func weakSigFinding(id, label, algo string, cert *x509.Certificate) Finding {
 }
 
 // ruleWeakRSAKey flags RSA keys below the configured threshold.
-type ruleWeakRSAKey struct{}
+type ruleWeakRSAKey struct{ ruleSpec }
 
-func (ruleWeakRSAKey) ID() string { return "TLS_WEAK_RSA_KEY" }
+func newRuleWeakRSAKey() ruleWeakRSAKey {
+	return ruleWeakRSAKey{ruleSpec{
+		id:          "TLS_WEAK_RSA_KEY",
+		severity:    SeverityCritical,
+		category:    "crypto",
+		title:       "RSA key is too short",
+		remediation: "Reissue with at least the configured minimum (2048 bits by default). New issuance should default to 3072 or 4096 bits, or migrate to ECDSA P-256/P-384.",
+	}}
+}
 
 func (r ruleWeakRSAKey) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -81,9 +97,17 @@ func (r ruleWeakRSAKey) Evaluate(c *EvalContext) []Finding {
 // ruleSuboptimalRSAKey flags RSA keys that are exactly at the minimum
 // (2048 by default). Low severity — acceptable today but underprefers
 // ECDSA and longer keys.
-type ruleSuboptimalRSAKey struct{}
+type ruleSuboptimalRSAKey struct{ ruleSpec }
 
-func (ruleSuboptimalRSAKey) ID() string { return "TLS_SUBOPTIMAL_RSA_KEY" }
+func newRuleSuboptimalRSAKey() ruleSuboptimalRSAKey {
+	return ruleSuboptimalRSAKey{ruleSpec{
+		id:          "TLS_SUBOPTIMAL_RSA_KEY",
+		severity:    SeverityLow,
+		category:    "crypto",
+		title:       "RSA key is at the minimum recommended size",
+		remediation: "Consider migrating to ECDSA P-256 or to RSA-3072. ECDSA P-256 is widely supported by modern browsers and libraries.",
+	}}
+}
 
 func (r ruleSuboptimalRSAKey) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -112,9 +136,17 @@ func (r ruleSuboptimalRSAKey) Evaluate(c *EvalContext) []Finding {
 
 // ruleWeakECCurve flags ECDSA keys on curves below the configured
 // minimum (P-224 or smaller).
-type ruleWeakECCurve struct{}
+type ruleWeakECCurve struct{ ruleSpec }
 
-func (ruleWeakECCurve) ID() string { return "TLS_WEAK_EC_CURVE" }
+func newRuleWeakECCurve() ruleWeakECCurve {
+	return ruleWeakECCurve{ruleSpec{
+		id:          "TLS_WEAK_EC_CURVE",
+		severity:    SeverityHigh,
+		category:    "crypto",
+		title:       "ECDSA key uses a weak curve",
+		remediation: "Reissue with ECDSA P-256 or P-384. Avoid custom curves; NIST P-256/P-384 are widely supported.",
+	}}
+}
 
 func (r ruleWeakECCurve) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil {
@@ -148,9 +180,17 @@ func (r ruleWeakECCurve) Evaluate(c *EvalContext) []Finding {
 // ruleCACertUsedAsLeaf flags leaf certificates with the CA basic
 // constraint set. High severity: this is a configuration mistake that
 // some clients reject outright.
-type ruleCACertUsedAsLeaf struct{}
+type ruleCACertUsedAsLeaf struct{ ruleSpec }
 
-func (ruleCACertUsedAsLeaf) ID() string { return "TLS_CA_CERT_USED_AS_LEAF" }
+func newRuleCACertUsedAsLeaf() ruleCACertUsedAsLeaf {
+	return ruleCACertUsedAsLeaf{ruleSpec{
+		id:          "TLS_CA_CERT_USED_AS_LEAF",
+		severity:    SeverityHigh,
+		category:    "crypto",
+		title:       "Certificate has the CA basic constraint but is served as a leaf",
+		remediation: "Reissue the leaf without the CA basic constraint. The CA certificate and the leaf certificate should be distinct.",
+	}}
+}
 
 func (r ruleCACertUsedAsLeaf) Evaluate(c *EvalContext) []Finding {
 	if c.Leaf == nil || !c.Leaf.IsCA {

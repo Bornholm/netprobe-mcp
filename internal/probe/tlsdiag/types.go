@@ -179,7 +179,7 @@ type ChainReport struct {
 	VerificationError   string       `json:"verification_error,omitempty"`
 	Ordered             bool         `json:"ordered" jsonschema:"certs are in leaf-to-root order"`
 	RootIncluded        bool         `json:"root_included" jsonschema:"self-signed root sent unnecessarily"`
-	MissingIntermediate bool         `json:"missing_intermediate" jsonschema:"chain only validated after fetching the intermediate via AIA; not done in v1"`
+	MissingIntermediate bool         `json:"missing_intermediate" jsonschema:"chain only validated after fetching the intermediate via AIA; observed passively from the verification error"`
 	ExtraneousCerts     []string     `json:"extraneous_certs,omitempty"`
 	VerifiedChains      [][]string   `json:"verified_chains,omitempty"`
 	HostnameMatches     bool         `json:"hostname_matches"`
