@@ -248,9 +248,28 @@ type GRPCProbeConfig struct {
 	HandshakeTimeout time.Duration `yaml:"handshake_timeout"`
 }
 
+// TCPProbeConfig governs the tcp_probe tool.
+//
+// Per PLAN §7.3, only NAMED, hard-coded dialogues are exposed
+// (smtp_banner, imap_capability, pop3_banner, mysql_handshake).
+// The agent never gets a free-form `send/expect` field. The
+// AllowQueryResponse knob exists solely so we can REJECT it at
+// boot — letting it slip into the config would silently re-open
+// the SSRF-by-protocol channel the PLAN warns about (Redis
+// CONFIG SET, Memcached flush, SMTP relaying).
 type TCPProbeConfig struct {
-	Enabled      bool  `yaml:"enabled"`
+	// Enabled toggles tcp_probe registration.
+	Enabled bool `yaml:"enabled"`
+
+	// MaxReadBytes caps how many bytes the prober reads from the
+	// peer (banner read + dialogue steps). Bounded so a malicious
+	// server cannot exhaust memory.
 	MaxReadBytes int64 `yaml:"max_read_bytes"`
+
+	// AllowQueryResponse MUST be false. It exists for the sole
+	// purpose of being refused at Validate() time. Any other
+	// value is a configuration error.
+	AllowQueryResponse bool `yaml:"allow_query_response"`
 }
 
 // ICMPProbeConfig governs the icmp_probe tool. The thresholds are
@@ -807,6 +826,16 @@ func (c *Config) Validate() error {
 
 	if c.Probes.TCP.MaxReadBytes <= 0 {
 		c.Probes.TCP.MaxReadBytes = 4096
+	}
+	// Refuse tcp.allow_query_response=true outright. Per PLAN §7.3,
+	// the only safe shape for tcp_probe is the hard-coded dialogue
+	// set exposed by the prober; free-form send/expect would let an
+	// agent speak any text protocol (Redis CONFIG SET, SMTP relay,
+	// MySQL queries, ...). The field exists solely so this check
+	// has something to look at.
+	if c.Probes.TCP.AllowQueryResponse {
+		errs = append(errs, errors.New(
+			"probes.tcp.allow_query_response=true is not supported: tcp_probe only exposes hard-coded named dialogues, never free-form query/response"))
 	}
 
 	// ICMP defaults. The hard caps in the prober (10 packets,

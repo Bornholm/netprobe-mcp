@@ -38,7 +38,7 @@ func (s *Server) registerTools() error {
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "tcp_probe",
 		Title:       "Probe a TCP endpoint",
-		Description: "Open a single TCP connection to an allow-listed target, optionally read a sanitized banner, and report connection details and timing. No application-level payload is sent.",
+		Description: "Open a single TCP connection to an allow-listed target and optionally read a sanitized banner or run a hard-coded named dialogue. Available dialogues: smtp_banner, imap_capability, pop3_banner, mysql_handshake. Per PLAN §7.3 the agent cannot send arbitrary bytes — only the bytes defined in the chosen dialogue cross the wire.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    true,
 			DestructiveHint: boolPtr(false),

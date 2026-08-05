@@ -225,13 +225,23 @@ probes:
   # caller-specified timeout longer than this.
   max_timeout: 30s
 
-  # TCP probe: banner grab, raw connect, optional StartTLS upgrade.
+  # TCP probe: banner grab, raw connect, or hard-coded named
+  # dialogue (smtp_banner, imap_capability, pop3_banner,
+  # mysql_handshake). Per PLAN §7.3 the agent never sends arbitrary
+  # bytes — only literal send steps from the chosen dialogue cross
+  # the wire.
   tcp:
     enabled: true
 
     # Maximum bytes read from the peer after the banner is consumed.
     # Caps memory use and stops abusive peers from filling buffers.
     max_read_bytes: 4096
+
+    # MUST be false. tcp_probe refuses any free-form query/response
+    # surface; only the named dialogues above are exposed.
+    # Setting this to true is a configuration error and the server
+    # refuses to start.
+    allow_query_response: false
 
   # HTTP probe: full request, optional redirect chain, optional
   # headers, response body sampling.

@@ -391,3 +391,38 @@ func TestValidate_ICMP_RejectsPayloadOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+// --- TCP probe validation ---
+
+func TestValidate_TCP_FillsMaxReadBytes(t *testing.T) {
+	c := Default()
+	c.Probes.TCP.MaxReadBytes = 0
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if c.Probes.TCP.MaxReadBytes != 4096 {
+		t.Errorf("default MaxReadBytes = %d, want 4096", c.Probes.TCP.MaxReadBytes)
+	}
+}
+
+func TestValidate_TCP_RejectsAllowQueryResponse(t *testing.T) {
+	c := Default()
+	c.Probes.TCP.AllowQueryResponse = true
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("expected error when probes.tcp.allow_query_response=true")
+	}
+	if !strings.Contains(err.Error(), "allow_query_response") {
+		t.Errorf("error should mention allow_query_response, got %q", err.Error())
+	}
+}
+
+func TestValidate_TCP_AllowsAllowQueryResponseFalse(t *testing.T) {
+	c := Default()
+	// Default is false; the test ensures the explicit-false path
+	// also validates cleanly (no spurious error).
+	c.Probes.TCP.AllowQueryResponse = false
+	if err := c.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil", err)
+	}
+}

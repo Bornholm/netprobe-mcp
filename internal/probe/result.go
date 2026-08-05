@@ -46,6 +46,22 @@ type TCPResult struct {
 	Banner          string `json:"banner,omitempty"`
 	BannerBytes     int64  `json:"banner_bytes"`
 	BannerTruncated bool   `json:"banner_truncated"`
+	// Dialogue is the name of the named dialogue executed by
+	// this probe, when opts.Dialogue is set. The Steps field
+	// then carries the per-step transcript.
+	Dialogue string          `json:"dialogue,omitempty"`
+	Steps    []TCPStepResult `json:"steps,omitempty"`
+}
+
+// TCPStepResult records one step of a named dialogue. The
+// fields are deliberately minimal: the agent gets the labels and
+// a short transcript excerpt, NOT the raw bytes (which can be
+// a binary handshake for mysql_handshake, see PLAN §7.3).
+type TCPStepResult struct {
+	Label   string `json:"label"`
+	Sent    string `json:"sent,omitempty"`
+	Matched bool   `json:"matched"`
+	Excerpt string `json:"excerpt,omitempty"`
 }
 
 // Now is overridable in tests.
