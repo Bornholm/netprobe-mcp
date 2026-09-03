@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -243,8 +245,52 @@ type ProbesConfig struct {
 	// TLS is also accepted as `tls_diagnostic` for operators who
 	// follow the PLAN §4.1 naming. Both keys map to the same
 	// struct; the alias keeps documentation continuity while the
-	// shorter key remains the canonical name.
-	TLS TLSDiagConfig `yaml:"tls,alias=tls_diagnostic"`
+	// shorter key remains the canonical name. See UnmarshalYAML.
+	TLS TLSDiagConfig `yaml:"tls"`
+}
+
+// UnmarshalYAML accepts `tls_diagnostic` as a second spelling of the
+// `tls` key.
+//
+// It is hand-written because yaml.v3 has no alias flag: the tag
+// `yaml:"tls,alias=tls_diagnostic"` did not declare an alternative
+// spelling, it made the decoder *panic* ("unsupported flag") on every
+// policy file carrying a probes section — configs/policy.example.yaml
+// included. A struct tag is only inspected once something decodes into
+// that struct, which is how the mistake stayed invisible.
+//
+// Declaring both keys is refused rather than silently resolved: an
+// operator who wrote two TLS sections meant something by it, and
+// picking one for them would apply a policy they did not ask for.
+func (c *ProbesConfig) UnmarshalYAML(node *yaml.Node) error {
+	// plain sheds the methods of ProbesConfig, this one included:
+	// decoding into it does not recurse back here.
+	type plain ProbesConfig
+
+	var base plain
+	if err := node.Decode(&base); err != nil {
+		return err
+	}
+	*c = ProbesConfig(base)
+
+	var alias struct {
+		TLSDiagnostic *TLSDiagConfig `yaml:"tls_diagnostic"`
+	}
+	if err := node.Decode(&alias); err != nil {
+		return err
+	}
+	if alias.TLSDiagnostic == nil {
+		return nil
+	}
+
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "tls" {
+			return fmt.Errorf("probes: declare either tls or tls_diagnostic, not both")
+		}
+	}
+	c.TLS = *alias.TLSDiagnostic
+
+	return nil
 }
 
 // GRPCProbeConfig governs the grpc_probe tool.

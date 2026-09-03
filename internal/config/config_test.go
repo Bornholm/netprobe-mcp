@@ -426,3 +426,80 @@ func TestValidate_TCP_AllowsAllowQueryResponseFalse(t *testing.T) {
 		t.Errorf("Validate() = %v, want nil", err)
 	}
 }
+
+// The example policy must load. It is the file the README tells operators
+// to start from and the one `make run` uses, and nothing decoded into
+// ProbesConfig until v0.4.0 shipped a struct tag that panicked the YAML
+// decoder on every policy carrying a probes section.
+func TestLoad_ExamplePolicy(t *testing.T) {
+	c, err := Load(filepath.Join("..", "..", "configs", "policy.example.yaml"))
+	if err != nil {
+		t.Fatalf("Load(policy.example.yaml) = %v, want nil", err)
+	}
+	if !c.Probes.TLS.Enabled {
+		t.Errorf("example policy should enable the TLS diagnostic")
+	}
+	if !c.Probes.DNS.Enabled {
+		t.Errorf("example policy should enable the DNS probe")
+	}
+}
+
+// A probes section decodes, whichever spelling of the TLS key it uses.
+func TestLoad_TLSKeySpellings(t *testing.T) {
+	const allow = `
+limits:
+  global: { rps: 1, burst: 1 }
+security:
+  targets:
+    allow:
+      - type: cidr
+        pattern: "127.0.0.0/8"
+        tools: ["tcp_probe"]
+`
+
+	for name, key := range map[string]string{"canonical": "tls", "alias": "tls_diagnostic"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "policy.yaml")
+			contents := allow + "probes:\n  " + key + ":\n    enabled: true\n    default_port: 8443\n"
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			c, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load(%s) = %v, want nil", key, err)
+			}
+			if !c.Probes.TLS.Enabled || c.Probes.TLS.DefaultPort != 8443 {
+				t.Errorf("%s key not applied: %+v", key, c.Probes.TLS)
+			}
+		})
+	}
+}
+
+// Both spellings at once is refused: picking one would apply a policy the
+// operator did not write.
+func TestLoad_RejectsBothTLSKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	contents := `
+limits:
+  global: { rps: 1, burst: 1 }
+security:
+  targets:
+    allow:
+      - type: cidr
+        pattern: "127.0.0.0/8"
+        tools: ["tcp_probe"]
+probes:
+  tls:
+    default_port: 443
+  tls_diagnostic:
+    default_port: 8443
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Error("Load(both TLS keys) = nil, want error")
+	}
+}
