@@ -139,8 +139,12 @@ func (s *Server) handleDNSProbe(ctx context.Context, req *mcp.CallToolRequest, i
 	// 4. Validate the QNAME against the allow-list (cheap pre-check).
 	//    PTR queries legitimately take IP literals as names — skip the
 	//    allow-list pre-check for those.
+	//
+	//    CheckQueryName, not CheckHostname: a query name is not a host
+	//    name, and the underscored labels of RFC 8552 (_dmarc, _domainkey,
+	//    _tcp) are the very records this tool is asked about.
 	if !isPTRQuery(in) {
-		if qerr := s.guard.CheckHostname(ctx, in.Name, "dns_probe"); qerr != nil {
+		if qerr := s.guard.CheckQueryName(ctx, in.Name, "dns_probe"); qerr != nil {
 			server.Release()
 			ev := &audit.Event{
 				SessionID:       sessionID,

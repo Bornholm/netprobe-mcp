@@ -14,7 +14,8 @@ test-race:
 	go test -race -count=1 ./...
 
 fuzz:
-	go test -fuzz=FuzzNormalizeHost -fuzztime=10s ./internal/security/
+	go test -run '^$$' -fuzz=^FuzzNormalizeHost$$ -fuzztime=10s ./internal/security/
+	go test -run '^$$' -fuzz=^FuzzNormalizeQueryName$$ -fuzztime=10s ./internal/security/
 
 lint:
 	go vet ./...

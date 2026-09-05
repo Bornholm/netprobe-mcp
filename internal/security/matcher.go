@@ -267,8 +267,15 @@ func compileRule(idx int, isAllow bool, rule config.TargetRule) (*compiledRule, 
 		comment: rule.Comment,
 	}
 	switch rule.Type {
+	// Patterns are normalized with NormalizeQueryName rather than
+	// NormalizeHost so that an operator running a strict, name-by-name
+	// allow-list can write the records dns_probe is actually asked about
+	// (_dmarc.example.com, selector._domainkey.example.com). Compiling
+	// such a pattern grants nothing on its own: Guard.Authorize normalizes
+	// the target it dials with NormalizeHost, so an underscored rule can
+	// only ever match a query name.
 	case "exact":
-		host, err := NormalizeHost(rule.Pattern)
+		host, err := NormalizeQueryName(rule.Pattern)
 		if err != nil {
 			return nil, err
 		}
@@ -278,7 +285,7 @@ func compileRule(idx int, isAllow bool, rule config.TargetRule) (*compiledRule, 
 		if !strings.Contains(rule.Pattern, ".") {
 			return nil, errInvalid("suffix pattern must contain a dot")
 		}
-		host, err := NormalizeHost(rule.Pattern)
+		host, err := NormalizeQueryName(rule.Pattern)
 		if err != nil {
 			return nil, err
 		}

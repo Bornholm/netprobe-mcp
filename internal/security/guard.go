@@ -255,7 +255,25 @@ func (g *Guard) Filter() *IPFilter       { return g.filter }
 // on resolved IPs are NOT enforced here; the full Guard.Authorize path
 // must still be used for the actual network target.
 func (g *Guard) CheckHostname(ctx context.Context, host, tool string) error {
-	host, err := NormalizeHost(host)
+	return g.checkName(ctx, host, tool, NormalizeHost)
+}
+
+// CheckQueryName is CheckHostname for a DNS query name, which is not a
+// host name: it admits the underscored labels of RFC 8552 (_dmarc,
+// _domainkey, _tcp) so that DMARC, DKIM, SRV and TLSA records can be
+// asked about at all.
+//
+// The relaxation stops here. Nothing dials what this function clears —
+// Guard.Authorize normalizes its target with NormalizeHost — so an
+// underscored name stays a question, never a connection.
+func (g *Guard) CheckQueryName(ctx context.Context, name, tool string) error {
+	return g.checkName(ctx, name, tool, NormalizeQueryName)
+}
+
+// checkName is the body shared by CheckHostname and CheckQueryName; the
+// two differ only in the label alphabet their normalizer admits.
+func (g *Guard) checkName(ctx context.Context, host, tool string, normalize func(string) (string, error)) error {
+	host, err := normalize(host)
 	if err != nil {
 		return err
 	}

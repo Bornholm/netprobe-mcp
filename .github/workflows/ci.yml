@@ -4,7 +4,7 @@
 #   - lint    : go vet + gofmt (fail-fast on style regressions)
 #   - build   : go build ./... on Linux and macOS
 #   - test    : go test -race -count=1 ./...
-#   - fuzz    : bounded fuzz of NormalizeHost (no regressions in 30s)
+#   - fuzz    : bounded fuzz of the two name normalizers (30s each)
 #
 # A failing job fails the workflow. The matrix is intentionally
 # minimal: Go 1.25 (the version pinned in go.mod). Wider Go
@@ -83,6 +83,12 @@ jobs:
       - name: fuzz NormalizeHost
         run: |
           go test -run '^$' -fuzz=^FuzzNormalizeHost$ -fuzztime=30s ./internal/security/
+      # Run separately: -fuzz takes a single target. The query-name
+      # normalizer is the looser of the two — it admits a character the
+      # host one does not — so it gets the same budget, not less.
+      - name: fuzz NormalizeQueryName
+        run: |
+          go test -run '^$' -fuzz=^FuzzNormalizeQueryName$ -fuzztime=30s ./internal/security/
 
   coverage:
     name: coverage
